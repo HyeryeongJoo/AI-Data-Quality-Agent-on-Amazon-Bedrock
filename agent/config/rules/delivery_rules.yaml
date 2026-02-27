@@ -1,0 +1,167 @@
+version: "1.0"
+description: "택배 데이터 정합성 검증 확장 규칙"
+
+rules:
+  # === 오류 유형 1: 허용 범위 밖의 값 (Out-of-range) ===
+  - rule_id: "R001-road_addr_yn_enum"
+    error_type: "out_of_range"
+    description: "도로명주소 여부 컬럼은 0 또는 1만 허용"
+    target_columns: ["road_addr_yn"]
+    validation_tool: "range_check"
+    params:
+      allowed_values: [0, 1]
+    severity: "critical"
+    enabled: true
+
+  - rule_id: "R001-status_code_enum"
+    error_type: "out_of_range"
+    description: "배송 상태 코드는 정의된 값만 허용"
+    target_columns: ["status_code"]
+    validation_tool: "range_check"
+    params:
+      allowed_values: ["PICKUP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED", "RETURNED"]
+    severity: "critical"
+    enabled: true
+
+  - rule_id: "R001-weight_range"
+    error_type: "out_of_range"
+    description: "택배 중량은 0.01 ~ 30.0 kg 범위여야 함"
+    target_columns: ["weight_kg"]
+    validation_tool: "range_check"
+    params:
+      min_value: 0.01
+      max_value: 30.0
+    severity: "warning"
+    enabled: true
+
+  - rule_id: "R001-fee_amount_range"
+    error_type: "out_of_range"
+    description: "배송비는 0 ~ 100,000원 범위여야 함"
+    target_columns: ["fee_amount"]
+    validation_tool: "range_check"
+    params:
+      min_value: 0
+      max_value: 100000
+    severity: "warning"
+    enabled: true
+
+  # === 오류 유형 2: 데이터 포맷 비일관성 (Format inconsistency) ===
+  - rule_id: "R002-time_format_hhmmss"
+    error_type: "format_inconsistency"
+    description: "시각 컬럼은 HH:MM:SS 형식이어야 함"
+    target_columns: ["dispatch_time", "arrival_time"]
+    validation_tool: "regex_validate"
+    params:
+      pattern: "^([01]\\d|2[0-3]):([0-5]\\d):([0-5]\\d)$"
+    severity: "warning"
+    enabled: true
+
+  - rule_id: "R002-tracking_id_format"
+    error_type: "format_inconsistency"
+    description: "운송장 번호는 숫자 10~15자리"
+    target_columns: ["tracking_id"]
+    validation_tool: "regex_validate"
+    params:
+      pattern: "^\\d{10,15}$"
+    severity: "critical"
+    enabled: true
+
+  - rule_id: "R002-phone_format"
+    error_type: "format_inconsistency"
+    description: "전화번호는 010-XXXX-XXXX 또는 0XX-XXX(X)-XXXX 형식"
+    target_columns: ["sender_phone", "receiver_phone"]
+    validation_tool: "regex_validate"
+    params:
+      pattern: "^0\\d{1,2}-\\d{3,4}-\\d{4}$"
+    severity: "warning"
+    enabled: true
+
+  - rule_id: "R002-date_format_yyyymmdd"
+    error_type: "format_inconsistency"
+    description: "날짜 컬럼은 YYYY-MM-DD 형식이어야 함"
+    target_columns: ["dispatch_date", "arrival_date"]
+    validation_tool: "regex_validate"
+    params:
+      pattern: "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    severity: "warning"
+    enabled: true
+
+  - rule_id: "R002-zipcode_format"
+    error_type: "format_inconsistency"
+    description: "우편번호는 5자리 숫자"
+    target_columns: ["sender_zipcode", "receiver_zipcode"]
+    validation_tool: "regex_validate"
+    params:
+      pattern: "^\\d{5}$"
+    severity: "warning"
+    enabled: true
+
+  # === 오류 유형 3: 시간 순서 논리 오류 (Temporal logic violation) ===
+  - rule_id: "R003-dispatch_before_arrival"
+    error_type: "temporal_violation"
+    description: "발송 시각은 도착 시각보다 이전이어야 함"
+    target_columns: ["dispatch_time", "arrival_time"]
+    validation_tool: "timestamp_compare"
+    params:
+      earlier_column: "dispatch_time"
+      later_column: "arrival_time"
+    severity: "critical"
+    enabled: true
+
+  - rule_id: "R003-dispatch_date_before_arrival_date"
+    error_type: "temporal_violation"
+    description: "발송 날짜는 도착 날짜보다 이전이거나 같아야 함"
+    target_columns: ["dispatch_date", "arrival_date"]
+    validation_tool: "timestamp_compare"
+    params:
+      earlier_column: "dispatch_date"
+      later_column: "arrival_date"
+    severity: "critical"
+    enabled: true
+
+  - rule_id: "R003-order_before_dispatch"
+    error_type: "temporal_violation"
+    description: "주문 시각은 발송 시각보다 이전이어야 함"
+    target_columns: ["order_datetime", "dispatch_time"]
+    validation_tool: "timestamp_compare"
+    params:
+      earlier_column: "order_datetime"
+      later_column: "dispatch_time"
+    severity: "warning"
+    enabled: true
+
+  # === 오류 유형 4: 컬럼 간 의미 불일치 (Cross-column inconsistency) ===
+  - rule_id: "R004-address_road_yn_match"
+    error_type: "cross_column_inconsistency"
+    description: "주소 유형(지번/도로명)과 도로명주소 여부 플래그 일치 여부"
+    target_columns: ["address", "road_addr_yn"]
+    validation_tool: "address_normalize"
+    params:
+      address_column: "address"
+      flag_column: "road_addr_yn"
+      road_addr_flag_value: 1
+      jibun_addr_flag_value: 0
+    severity: "warning"
+    enabled: true
+
+  - rule_id: "R004-cod_payment_consistency"
+    error_type: "cross_column_inconsistency"
+    description: "착불 결제 시 착불 금액이 0보다 커야 하고, 선불/카드 결제 시 착불 금액은 0이어야 함"
+    target_columns: ["payment_method", "cod_amount"]
+    validation_tool: "value_condition"
+    params:
+      conditions:
+        - when_column: "payment_method"
+          when_values: ["착불"]
+          check_column: "cod_amount"
+          check_op: "gt"
+          check_value: 0
+          reason: "착불 결제인데 착불 금액(cod_amount)이 0원"
+        - when_column: "payment_method"
+          when_values: ["선불", "신용카드", "계좌이체"]
+          check_column: "cod_amount"
+          check_op: "eq"
+          check_value: 0
+          reason: "선불/카드/이체 결제인데 착불 금액(cod_amount)이 존재"
+    severity: "critical"
+    enabled: true

@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Node.js
+node_modules/
+web/frontend/dist/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AWS
+.aws/
+.bedrock_agentcore.yaml
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+tests/reports/
+
+# Misc
+*.log
+*.tar.gz

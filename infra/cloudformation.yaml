@@ -1,0 +1,574 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Bedrock DQ Agent - CloudFront + EC2 Standalone Stack'
+
+Parameters:
+  S3CodeBucket:
+    Type: String
+    Description: S3 bucket containing the deployment package
+  S3CodeKey:
+    Type: String
+    Default: dq-agent-web.tar.gz
+    Description: S3 key for the deployment package
+  AgentRuntimeArn:
+    Type: String
+    Default: ''
+    Description: Bedrock AgentCore runtime ARN (leave empty for direct invocation)
+  S3StagingBucket:
+    Type: String
+    Default: ''
+    Description: S3 bucket for staging data and pipeline artifacts
+
+Mappings:
+  CidrMappings:
+    public-subnet-1: {CIDR: 10.4.1.0/24}
+    vpc: {CIDR: 10.4.0.0/16}
+  DomainNameMappings:
+    us-east-1: {Domain: ec2.internal}
+    ap-northeast-1: {Domain: ap-northeast-1.compute.internal}
+    ap-northeast-2: {Domain: ap-northeast-2.compute.internal}
+  AWSRegionsPrefixListID:
+    us-east-1: {PrefixList: pl-3b927c52}
+    ap-northeast-1: {PrefixList: pl-58a04531}
+    ap-northeast-2: {PrefixList: pl-22a6434b}
+
+Resources:
+  # ============================================================
+  # VPC & Networking (Single-AZ)
+  # ============================================================
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !FindInMap [CidrMappings, vpc, CIDR]
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-VPC'}
+
+  DHCPOptions:
+    Type: AWS::EC2::DHCPOptions
+    Properties:
+      DomainName: !FindInMap [DomainNameMappings, !Ref 'AWS::Region', Domain]
+      DomainNameServers: [AmazonProvidedDNS]
+
+  VPCDHCPOptionsAssociation:
+    Type: AWS::EC2::VPCDHCPOptionsAssociation
+    Properties:
+      DhcpOptionsId: !Ref DHCPOptions
+      VpcId: !Ref VPC
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    DependsOn: VPC
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    DependsOn: [VPC, InternetGateway]
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn: [VPC, AttachGateway]
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-PublicRT'}
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: [PublicRouteTable, AttachGateway]
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    DependsOn: AttachGateway
+    Properties:
+      AvailabilityZone: !Select ['0', !GetAZs '']
+      CidrBlock: !FindInMap [CidrMappings, public-subnet-1, CIDR]
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-PublicSubnet1'}
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    DependsOn: [PublicRouteTable, PublicSubnet1, AttachGateway]
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  # ============================================================
+  # Security Group - CloudFront only ingress on port 8001
+  # ============================================================
+
+  DQAgentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${AWS::StackName} - Allow CloudFront ingress on port 8001'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - Description: Allow HTTP from CloudFront on port 8001
+          IpProtocol: tcp
+          FromPort: 8001
+          ToPort: 8001
+          SourcePrefixListId: !FindInMap [AWSRegionsPrefixListID, !Ref 'AWS::Region', PrefixList]
+
+  # ============================================================
+  # IAM Roles
+  # ============================================================
+
+  DQAgentEC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+                - ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonBedrockFullAccess
+        - arn:aws:iam::aws:policy/BedrockAgentCoreFullAccess
+      Policies:
+        - PolicyName: DQAgentEC2Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${S3CodeBucket}'
+                  - !Sub 'arn:aws:s3:::${S3CodeBucket}/*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${S3StagingBucket}'
+                  - !Sub 'arn:aws:s3:::${S3StagingBucket}/*'
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:InvokeAgent
+                Resource: '*'
+
+  DQAgentEC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref DQAgentEC2Role
+
+  # ============================================================
+  # EC2 Instance (ARM64 Graviton, m7g.medium, 30GB)
+  # ============================================================
+
+  DQAgentInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: [DQAgentSecurityGroup]
+    Properties:
+      ImageId: resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+      InstanceType: m7g.medium
+      IamInstanceProfile: !Ref DQAgentEC2InstanceProfile
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds:
+        - !Ref DQAgentSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            DeleteOnTermination: true
+            Encrypted: true
+      Monitoring: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Instance'
+
+  # ============================================================
+  # Lambda Functions for SSM Document orchestration
+  # ============================================================
+
+  SSMDocLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SSMDocOnEC2
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                Resource:
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:document/${DQAgentDeploySSMDoc}'
+                  - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${DQAgentInstance}'
+              - Effect: Allow
+                Action:
+                  - ssm:ListCommandInvocations
+                  - ssm:GetCommandInvocation
+                Resource: '*'
+
+  RunSSMDocLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Run SSM document on EC2 instance
+      Handler: index.lambda_handler
+      Runtime: python3.11
+      MemorySize: 128
+      Timeout: 600
+      Environment:
+        Variables:
+          RetrySleep: 2900
+          AbortTimeRemaining: 3200
+      Role: !GetAtt SSMDocLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import logging
+          import time
+          import os
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              if event['RequestType'] != 'Create':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={}, reason='No action to take')
+              else:
+                  sleep_ms = int(os.environ.get('RetrySleep'))
+                  abort_time_remaining_ms = int(os.environ.get('AbortTimeRemaining'))
+                  resource_properties = event['ResourceProperties']
+                  instance_id = resource_properties['InstanceId']
+                  document_name = resource_properties['DocumentName']
+                  cloudwatch_log_group_name = resource_properties['CloudWatchLogGroupName']
+
+                  logger.info(f'Running SSM Document {document_name} on EC2 instance {instance_id}')
+
+                  del resource_properties['ServiceToken']
+                  if 'ServiceTimeout' in resource_properties:
+                      del resource_properties['ServiceTimeout']
+                  del resource_properties['InstanceId']
+                  del resource_properties['DocumentName']
+                  del resource_properties['CloudWatchLogGroupName']
+
+                  parameters = {}
+                  for key, value in resource_properties.items():
+                      parameters[key] = [value]
+
+                  retry = True
+                  attempt_no = 0
+                  time_remaining_ms = context.get_remaining_time_in_millis()
+                  ssm = boto3.client('ssm')
+
+                  while (retry == True):
+                      attempt_no += 1
+                      logger.info(f'Attempt: {attempt_no}. Time Remaining: {time_remaining_ms/1000}s')
+                      try:
+                          response = ssm.send_command(
+                              InstanceIds = [instance_id],
+                              DocumentName = document_name,
+                              CloudWatchOutputConfig = {'CloudWatchLogGroupName': cloudwatch_log_group_name, 'CloudWatchOutputEnabled': True},
+                              Parameters = parameters
+                          )
+                          command_id = response['Command']['CommandId']
+                          responseData = {'CommandId': command_id}
+                          cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, reason='OK')
+                          retry = False
+
+                      except ssm.exceptions.InvalidInstanceId as e:
+                          time_remaining_ms = context.get_remaining_time_in_millis()
+                          if (time_remaining_ms > abort_time_remaining_ms):
+                              logger.info(f'Instance {instance_id} not ready. Sleeping: {sleep_ms/1000}s')
+                              time.sleep(sleep_ms/1000)
+                              retry = True
+                          else:
+                              logger.error(e, exc_info=True)
+                              cfnresponse.send(event, context, cfnresponse.FAILED, responseData={}, reason='Timed out')
+                              retry = False
+                      except Exception as e:
+                          logger.error(e, exc_info=True)
+                          cfnresponse.send(event, context, cfnresponse.FAILED, responseData={}, reason=str(e))
+                          retry = False
+
+  CheckSSMDocLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Check SSM document completion on EC2 instance
+      Handler: index.lambda_handler
+      Runtime: python3.11
+      MemorySize: 128
+      Timeout: 600
+      Environment:
+        Variables:
+          RetrySleep: 2900
+          AbortTimeRemaining: 5000
+      Role: !GetAtt SSMDocLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import logging
+          import time
+          import os
+          import re
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def sanitize(text):
+              """Strip ANSI escape codes and control characters for CloudFormation response"""
+              text = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
+              text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+              return text
+
+          def lambda_handler(event, context):
+              if event['RequestType'] != 'Create':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={}, reason='No action to take')
+              else:
+                  sleep_ms = int(os.environ.get('RetrySleep'))
+                  abort_time_remaining_ms = int(os.environ.get('AbortTimeRemaining'))
+                  resource_properties = event['ResourceProperties']
+                  instance_id = resource_properties['InstanceId']
+                  document_name = resource_properties['DocumentName']
+
+                  logger.info(f'Checking SSM Document {document_name} on EC2 instance {instance_id}')
+
+                  retry = True
+                  attempt_no = 0
+                  time_remaining_ms = context.get_remaining_time_in_millis()
+                  ssm = boto3.client('ssm')
+
+                  while (retry == True):
+                      attempt_no += 1
+                      logger.info(f'Attempt: {attempt_no}. Time Remaining: {time_remaining_ms/1000}s')
+                      try:
+                          response = ssm.list_command_invocations(
+                              InstanceId=instance_id,
+                              Details=True
+                          )
+
+                          for invocation in response['CommandInvocations']:
+                              if invocation['DocumentName'] == document_name:
+                                  invocation_status = invocation['Status']
+                                  if invocation_status == 'Success':
+                                      logger.info(f'SSM Document completed successfully')
+                                      cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData={}, reason='OK')
+                                      retry = False
+                                  elif invocation_status in ['Failed', 'Cancelled', 'TimedOut']:
+                                      reason = f'SSM Document failed with status: {invocation_status}'
+                                      for step in invocation['CommandPlugins']:
+                                          step_name = step['Name']
+                                          step_status = step['Status']
+                                          if step_status != 'Success':
+                                              step_output = step.get('Output', 'No output available')
+                                              clean_output = sanitize(step_output[-2000:])
+                                              reason += f'\nStep {step_name} {step_status}: {clean_output}'
+                                      logger.error(reason)
+                                      cfnresponse.send(event, context, cfnresponse.FAILED, responseData={}, reason=reason)
+                                      retry = False
+                                  else:
+                                      logger.info(f'SSM Document still running. Status: {invocation_status}')
+                                      retry = True
+
+                          if retry == True:
+                              if (time_remaining_ms > abort_time_remaining_ms):
+                                  time.sleep(sleep_ms/1000)
+                                  time_remaining_ms = context.get_remaining_time_in_millis()
+                              else:
+                                  cfnresponse.send(event, context, cfnresponse.FAILED, responseData={}, reason='Timeout waiting for SSM document completion')
+                                  retry = False
+                      except Exception as e:
+                          logger.error(e, exc_info=True)
+                          cfnresponse.send(event, context, cfnresponse.FAILED, responseData={}, reason=str(e))
+                          retry = False
+
+  # ============================================================
+  # SSM Document: Deploy DQ Agent Web
+  # ============================================================
+
+  DQAgentDeploySSMDoc:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Content:
+        schemaVersion: '2.2'
+        description: Deploy DQ Agent Web (FastAPI + React) application
+        parameters:
+          S3Bucket:
+            type: String
+          S3Key:
+            type: String
+          AgentRuntimeArn:
+            type: String
+          S3StagingBucket:
+            type: String
+          AwsRegion:
+            type: String
+        mainSteps:
+          - name: DeployDQAgentWeb
+            action: aws:runShellScript
+            inputs:
+              timeoutSeconds: 900
+              runCommand:
+                - '#!/bin/bash'
+                - set -e
+                - ''
+                - echo "=== Installing Python 3.12 ==="
+                - dnf install -y -q python3.12 python3.12-pip
+                - python3.12 --version
+                - ''
+                - echo "=== Installing Node.js 22 ==="
+                - curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
+                - dnf install -y -q nodejs
+                - node --version && npm --version
+                - ''
+                - echo "=== Downloading deployment package from S3 ==="
+                - rm -rf /opt/dq-agent-web
+                - mkdir -p /opt/dq-agent-web
+                - 'aws s3 cp "s3://{{ S3Bucket }}/{{ S3Key }}" /tmp/dq-agent-web.tar.gz'
+                - tar -xzf /tmp/dq-agent-web.tar.gz -C /opt/dq-agent-web
+                - rm -f /tmp/dq-agent-web.tar.gz
+                - ''
+                - echo "=== Building frontend ==="
+                - cd /opt/dq-agent-web/frontend
+                - npm ci
+                - npm run build
+                - ''
+                - echo "=== Installing backend dependencies ==="
+                - python3.12 -m pip install -r /opt/dq-agent-web/backend/requirements.txt
+                - ''
+                - echo "=== Creating systemd service ==="
+                - |
+                  cat > /etc/systemd/system/dq-agent-web.service <<UNIT
+                  [Unit]
+                  Description=DQ Agent Web (FastAPI + React)
+                  After=network.target
+
+                  [Service]
+                  Type=simple
+                  User=ec2-user
+                  WorkingDirectory=/opt/dq-agent-web/backend
+                  ExecStart=/usr/bin/python3.12 -m uvicorn main:app --host 0.0.0.0 --port 8001
+                  Restart=always
+                  RestartSec=5
+                  Environment=ROOT_PATH=
+                  Environment=AWS_REGION={{ AwsRegion }}
+                  Environment=AGENT_RUNTIME_ARN={{ AgentRuntimeArn }}
+                  Environment=S3_STAGING_BUCKET={{ S3StagingBucket }}
+
+                  [Install]
+                  WantedBy=multi-user.target
+                  UNIT
+                - ''
+                - chown -R ec2-user:ec2-user /opt/dq-agent-web
+                - systemctl daemon-reload
+                - systemctl enable dq-agent-web
+                - systemctl start dq-agent-web
+                - ''
+                - echo "=== Waiting for health check ==="
+                - set +e
+                - 'for i in $(seq 1 30); do curl -sf http://localhost:8001/api/health > /dev/null 2>&1 && echo "Health check passed" && break; sleep 2; done'
+                - echo "DQ Agent Web deployment complete"
+
+  # ============================================================
+  # Orchestration: Deploy → Check → Health Check → CloudFront
+  # ============================================================
+
+  # Step 1: Run Deploy SSM Document
+  RunDeploySSMDoc:
+    Type: Custom::RunSSMDocLambda
+    Properties:
+      ServiceToken: !GetAtt RunSSMDocLambda.Arn
+      ServiceTimeout: 305
+      InstanceId: !Ref DQAgentInstance
+      DocumentName: !Ref DQAgentDeploySSMDoc
+      CloudWatchLogGroupName: !Sub '/aws/ssm/${DQAgentDeploySSMDoc}'
+      S3Bucket: !Ref S3CodeBucket
+      S3Key: !Ref S3CodeKey
+      AgentRuntimeArn: !Ref AgentRuntimeArn
+      S3StagingBucket: !Ref S3StagingBucket
+      AwsRegion: !Ref 'AWS::Region'
+
+  # Step 2: Check Deploy completion
+  CheckDeploySSMDoc:
+    Type: Custom::CheckSSMDocLambda
+    DependsOn: RunDeploySSMDoc
+    Properties:
+      ServiceToken: !GetAtt CheckSSMDocLambda.Arn
+      ServiceTimeout: 610
+      InstanceId: !Ref DQAgentInstance
+      DocumentName: !Ref DQAgentDeploySSMDoc
+
+  # ============================================================
+  # CloudFront Distribution
+  # ============================================================
+
+  DQAgentCloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    DependsOn: CheckDeploySSMDoc
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2and3
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+            - PUT
+            - PATCH
+            - POST
+            - DELETE
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: 216adef6-5c7f-47e4-b989-5492eafa07d3
+          TargetOriginId: !Sub 'DQAgentWeb-${AWS::StackName}'
+          ViewerProtocolPolicy: redirect-to-https
+        Origins:
+          - DomainName: !GetAtt DQAgentInstance.PublicDnsName
+            Id: !Sub 'DQAgentWeb-${AWS::StackName}'
+            CustomOriginConfig:
+              HTTPPort: 8001
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 120
+              OriginKeepaliveTimeout: 120
+
+Outputs:
+  CloudFrontURL:
+    Description: DQ Agent Web URL
+    Value: !Sub 'https://${DQAgentCloudFrontDistribution.DomainName}'
+
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref DQAgentInstance
+
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+
+  S3CodeBucketName:
+    Description: S3 bucket used for deployment package
+    Value: !Ref S3CodeBucket

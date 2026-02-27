@@ -1,0 +1,86 @@
+rules:
+  # out_of_range rules
+  - rule_id: "R001"
+    error_type: "out_of_range"
+    description: "road_address_yn must be 0 or 1"
+    target_columns: ["road_address_yn"]
+    validation_tool: "range_check"
+    params:
+      allowed_values: [0, 1]
+    severity: "critical"
+    enabled: true
+
+  - rule_id: "R002"
+    error_type: "out_of_range"
+    description: "road_address_yn must be 0 or 1 (secondary)"
+    target_columns: ["road_address_yn"]
+    validation_tool: "range_check"
+    params:
+      min_value: 0
+      max_value: 1
+    severity: "critical"
+    enabled: false
+
+  # format_inconsistency rules
+  - rule_id: "R003"
+    error_type: "format_inconsistency"
+    description: "dispatch_time must be HH:MM:SS format"
+    target_columns: ["dispatch_time"]
+    validation_tool: "regex_validate"
+    params:
+      pattern: "^\\d{2}:\\d{2}:\\d{2}$"
+    severity: "warning"
+    enabled: true
+
+  - rule_id: "R004"
+    error_type: "format_inconsistency"
+    description: "arrival_time must be HH:MM:SS format"
+    target_columns: ["arrival_time"]
+    validation_tool: "regex_validate"
+    params:
+      pattern: "^\\d{2}:\\d{2}:\\d{2}$"
+    severity: "warning"
+    enabled: true
+
+  # temporal_violation rules
+  - rule_id: "R005"
+    error_type: "temporal_violation"
+    description: "dispatch_time must be before arrival_time"
+    target_columns: ["dispatch_time", "arrival_time"]
+    validation_tool: "timestamp_compare"
+    params:
+      format: "%H:%M:%S"
+    severity: "critical"
+    enabled: true
+
+  # cross_column_inconsistency rules
+  - rule_id: "R006"
+    error_type: "cross_column_inconsistency"
+    description: "address type must match road_address_yn flag"
+    target_columns: ["address", "road_address_yn"]
+    validation_tool: "address_normalize"
+    params:
+      relation_type: "semantic"
+    severity: "warning"
+    enabled: true
+
+  # Additional disabled rules for testing
+  - rule_id: "R007"
+    error_type: "out_of_range"
+    description: "Disabled test rule"
+    target_columns: ["road_address_yn"]
+    validation_tool: "range_check"
+    params:
+      allowed_values: [0, 1]
+    severity: "info"
+    enabled: false
+
+  - rule_id: "R008"
+    error_type: "format_inconsistency"
+    description: "record_id format check (disabled)"
+    target_columns: ["record_id"]
+    validation_tool: "regex_validate"
+    params:
+      pattern: "^REC-[A-Z0-9]+$"
+    severity: "info"
+    enabled: false

@@ -1,0 +1,26 @@
+[
+  {"record_id": "REC-001", "dispatch_time": "09:00:00", "arrival_time": "12:30:00", "road_address_yn": 1, "address": "서울특별시 강남구 테헤란로 123"},
+  {"record_id": "REC-002", "dispatch_time": "10:15:00", "arrival_time": "14:00:00", "road_address_yn": 0, "address": "서울특별시 서초구 서초동 1234-5"},
+  {"record_id": "REC-003", "dispatch_time": "08:30:00", "arrival_time": "11:45:00", "road_address_yn": 1, "address": "경기도 성남시 분당구 판교로 256"},
+  {"record_id": "REC-004", "dispatch_time": "07:00:00", "arrival_time": "10:00:00", "road_address_yn": 0, "address": "부산광역시 해운대구 우동 1500"},
+  {"record_id": "REC-005", "dispatch_time": "11:00:00", "arrival_time": "15:30:00", "road_address_yn": 1, "address": "대전광역시 유성구 대학로 99"},
+  {"record_id": "REC-006", "dispatch_time": "06:45:00", "arrival_time": "09:15:00", "road_address_yn": 0, "address": "인천광역시 남동구 구월동 350"},
+  {"record_id": "REC-007", "dispatch_time": "13:00:00", "arrival_time": "17:00:00", "road_address_yn": 1, "address": "광주광역시 서구 상무중앙로 100"},
+  {"record_id": "REC-008", "dispatch_time": "14:30:00", "arrival_time": "18:00:00", "road_address_yn": 0, "address": "대구광역시 달서구 성서동 500"},
+  {"record_id": "REC-009", "dispatch_time": "09:30:00", "arrival_time": "13:00:00", "road_address_yn": 1, "address": "울산광역시 남구 삼산로 200"},
+  {"record_id": "REC-010", "dispatch_time": "10:00:00", "arrival_time": "14:30:00", "road_address_yn": 0, "address": "세종특별자치시 한누리대로 2130"},
+  {"record_id": "REC-011", "dispatch_time": "08:00:00", "arrival_time": "11:00:00", "road_address_yn": 1, "address": "경기도 수원시 영통구 광교로 145"},
+  {"record_id": "REC-012", "dispatch_time": "15:00:00", "arrival_time": "19:00:00", "road_address_yn": 0, "address": "충청남도 천안시 서북구 쌍용동 100"},
+
+  {"record_id": "REC-E01", "dispatch_time": "09:00:00", "arrival_time": "12:00:00", "road_address_yn": 2, "address": "서울특별시 강남구 역삼로 50"},
+  {"record_id": "REC-E02", "dispatch_time": "10:00:00", "arrival_time": "14:00:00", "road_address_yn": 3, "address": "서울특별시 송파구 올림픽로 300"},
+
+  {"record_id": "REC-E03", "dispatch_time": "1400000", "arrival_time": "18:00:00", "road_address_yn": 1, "address": "경기도 고양시 일산서구 킨텍스로 217"},
+  {"record_id": "REC-E04", "dispatch_time": "093000", "arrival_time": "12:00:00", "road_address_yn": 0, "address": "경기도 용인시 수지구 죽전동 1234"},
+
+  {"record_id": "REC-E05", "dispatch_time": "14:00:00", "arrival_time": "10:00:00", "road_address_yn": 1, "address": "서울특별시 마포구 월드컵북로 396"},
+  {"record_id": "REC-E06", "dispatch_time": "18:00:00", "arrival_time": "15:30:00", "road_address_yn": 0, "address": "서울특별시 영등포구 여의도동 45"},
+
+  {"record_id": "REC-E07", "dispatch_time": "09:00:00", "arrival_time": "12:00:00", "road_address_yn": 1, "address": "서울특별시 종로구 종로동 154-10"},
+  {"record_id": "REC-E08", "dispatch_time": "10:00:00", "arrival_time": "13:00:00", "road_address_yn": 0, "address": "서울특별시 강남구 테헤란로 521"}
+]
