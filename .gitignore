@@ -42,6 +42,9 @@ htmlcov/
 .pytest_cache/
 tests/reports/
 
+# Experiments (thesis — local only)
+experiments/
+
 # Misc
 *.log
 *.tar.gz
