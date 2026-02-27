@@ -30,53 +30,72 @@ coordinator → profiler → schema_analyzer → rule_validator
 
 - Python 3.12+
 - Node.js 22+
-- Bedrock 접근이 가능한 AWS 계정 (Claude Sonnet 모델)
-- 데이터 스테이징용 S3 버킷
+- AWS CLI 설정 완료 (credentials 포함)
+- Bedrock 모델 접근이 가능한 AWS 계정 (Claude Sonnet)
 
-### 1. 클론 및 설정
+### 방법 A: 원커맨드 설정
 
 ```bash
-git clone https://github.com/your-org/bedrock-dq-agent.git
+git clone https://github.com/HyeryeongJoo/bedrock-dq-agent.git
 cd bedrock-dq-agent
+
+# 1. .env 생성 후 설정 입력
 cp .env.example .env
-# .env 파일을 편집하여 AWS 설정을 입력하세요
-```
+# .env 편집 — 최소한 S3_STAGING_BUCKET 설정 필요
 
-### 2. 에이전트 설정
+# 2. 셋업 실행 (의존성 설치, 프론트엔드 빌드, AWS 리소스 생성, 샘플 데이터 업로드)
+./setup.sh
 
-```bash
-cd agent
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-```
-
-### 3. 테스트 실행
-
-```bash
-cd agent
-pytest tests/ -v
-```
-
-### 4. 웹 대시보드 시작 (로컬 개발)
-
-```bash
-cd web/frontend
-npm install
-npm run build
-
-cd ../..
+# 3. 실행
 ./web/start.sh
 # http://localhost:8001 에서 접속
 ```
 
-### 5. AWS 배포 (CloudFormation)
+`setup.sh`이 수행하는 작업:
+- 사전 요구사항 확인 (Python, Node.js, AWS CLI, 자격증명)
+- 에이전트 Python 의존성 설치 + 가상환경 생성
+- React 프론트엔드 빌드
+- S3 버킷 및 DynamoDB 테이블 생성
+- 샘플 배송 데이터 (100건) S3 업로드
+
+AWS 리소스 생성을 건너뛰려면: `./setup.sh --skip-aws`
+
+### 방법 B: 단계별 설정
+
+```bash
+# 1. 클론 및 설정
+git clone https://github.com/HyeryeongJoo/bedrock-dq-agent.git
+cd bedrock-dq-agent
+cp .env.example .env        # AWS 설정 편집
+
+# 2. 에이전트 설정
+cd agent
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+
+# 3. 테스트 실행
+pytest tests/ -v
+
+# 4. AWS 리소스 생성 (S3 버킷 + DynamoDB 테이블)
+cd ..
+./scripts/setup-aws.sh
+
+# 5. 샘플 데이터 업로드
+./scripts/upload-sample-data.sh
+
+# 6. 프론트엔드 빌드 및 실행
+cd web/frontend && npm install && npm run build && cd ../..
+./web/start.sh              # http://localhost:8001 에서 접속
+```
+
+### AWS 배포 (CloudFormation)
 
 ```bash
 export AWS_REGION=us-east-1
 export DEPLOY_S3_BUCKET=my-deploy-bucket
-export AGENT_RUNTIME_ARN=arn:aws:bedrock-agentcore:...  # 선택사항
 export S3_STAGING_BUCKET=my-staging-bucket
+export AGENT_RUNTIME_ARN=arn:aws:bedrock-agentcore:...  # 선택사항
 
 ./web/deploy.sh
 ```
@@ -100,8 +119,13 @@ bedrock-dq-agent/
 │   ├── frontend/             # React + Cloudscape UI
 │   ├── start.sh              # 로컬 개발 스크립트
 │   └── deploy.sh             # AWS 배포 스크립트
+├── scripts/
+│   ├── check-prereqs.sh      # 사전 요구사항 확인
+│   ├── setup-aws.sh          # S3 버킷 + DynamoDB 테이블 생성
+│   └── upload-sample-data.sh # 테스트 데이터 S3 업로드
 ├── infra/
 │   └── cloudformation.yaml   # 전체 스택 CloudFormation 템플릿
+├── setup.sh                  # 원커맨드 셋업
 ├── .env.example              # 환경변수 템플릿
 └── LICENSE                   # MIT
 ```

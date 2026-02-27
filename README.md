@@ -30,53 +30,72 @@ coordinator → profiler → schema_analyzer → rule_validator
 
 - Python 3.12+
 - Node.js 22+
-- AWS account with Bedrock access (Claude Sonnet model)
-- S3 bucket for staging data
+- AWS CLI configured with credentials
+- AWS account with Bedrock model access (Claude Sonnet)
 
-### 1. Clone and configure
+### Option A: One-command setup
 
 ```bash
-git clone https://github.com/your-org/bedrock-dq-agent.git
+git clone https://github.com/HyeryeongJoo/bedrock-dq-agent.git
 cd bedrock-dq-agent
+
+# 1. Create .env and fill in your settings
 cp .env.example .env
-# Edit .env with your AWS settings
-```
+# Edit .env — at minimum set S3_STAGING_BUCKET
 
-### 2. Set up the agent
+# 2. Run setup (installs deps, builds frontend, creates AWS resources, uploads sample data)
+./setup.sh
 
-```bash
-cd agent
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-```
-
-### 3. Run tests
-
-```bash
-cd agent
-pytest tests/ -v
-```
-
-### 4. Start the web dashboard (local development)
-
-```bash
-cd web/frontend
-npm install
-npm run build
-
-cd ../..
+# 3. Start
 ./web/start.sh
 # Open http://localhost:8001
 ```
 
-### 5. Deploy to AWS (CloudFormation)
+`setup.sh` will:
+- Check prerequisites (Python, Node.js, AWS CLI, credentials)
+- Install agent Python dependencies + create virtualenv
+- Build the React frontend
+- Create S3 buckets and DynamoDB tables
+- Upload sample delivery data (100 records) to S3
+
+Use `./setup.sh --skip-aws` to skip AWS resource creation.
+
+### Option B: Step-by-step
+
+```bash
+# 1. Clone and configure
+git clone https://github.com/HyeryeongJoo/bedrock-dq-agent.git
+cd bedrock-dq-agent
+cp .env.example .env        # Edit with your AWS settings
+
+# 2. Set up the agent
+cd agent
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+
+# 3. Run tests
+pytest tests/ -v
+
+# 4. Create AWS resources (S3 buckets + DynamoDB tables)
+cd ..
+./scripts/setup-aws.sh
+
+# 5. Upload sample data
+./scripts/upload-sample-data.sh
+
+# 6. Build frontend and start
+cd web/frontend && npm install && npm run build && cd ../..
+./web/start.sh              # Open http://localhost:8001
+```
+
+### Deploy to AWS (CloudFormation)
 
 ```bash
 export AWS_REGION=us-east-1
 export DEPLOY_S3_BUCKET=my-deploy-bucket
-export AGENT_RUNTIME_ARN=arn:aws:bedrock-agentcore:...  # optional
 export S3_STAGING_BUCKET=my-staging-bucket
+export AGENT_RUNTIME_ARN=arn:aws:bedrock-agentcore:...  # optional
 
 ./web/deploy.sh
 ```
@@ -100,8 +119,13 @@ bedrock-dq-agent/
 │   ├── frontend/             # React + Cloudscape UI
 │   ├── start.sh              # Local development script
 │   └── deploy.sh             # AWS deployment script
+├── scripts/
+│   ├── check-prereqs.sh      # Prerequisites checker
+│   ├── setup-aws.sh          # Create S3 buckets + DynamoDB tables
+│   └── upload-sample-data.sh # Upload test data to S3
 ├── infra/
 │   └── cloudformation.yaml   # Full-stack CloudFormation template
+├── setup.sh                  # One-command setup
 ├── .env.example              # Environment variable template
 └── LICENSE                   # MIT
 ```
