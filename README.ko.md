@@ -1,4 +1,4 @@
-# Bedrock DQ Agent
+# AI Data Quality Agent on Amazon Bedrock
 
 [Strands Agents SDK](https://github.com/strands-agents/sdk-python)와 [Amazon Bedrock](https://aws.amazon.com/bedrock/)을 활용한 AI 데이터 품질 검증 에이전트입니다. [Amazon Bedrock AgentCore](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/)에 배포하며, 웹 대시보드를 통해 대화형 검증을 수행합니다.
 
