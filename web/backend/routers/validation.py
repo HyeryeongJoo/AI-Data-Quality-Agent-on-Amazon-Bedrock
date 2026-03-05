@@ -23,13 +23,11 @@ logger = logging.getLogger(__name__)
 # In-memory job store
 _jobs: dict = {}
 
-AGENT_CODE_PATH = os.environ.get(
-    "AGENT_CODE_PATH", "/home/ec2-user/joohyery-projects/ai-dq-agent-v2"
-)
+AGENT_CODE_PATH = os.environ.get("AGENT_CODE_PATH", "")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-# Set to empty string to use direct invocation instead of AgentCore
-DEFAULT_AGENT_ARN = "arn:aws:bedrock-agentcore:us-east-1:163720405317:runtime/ai_dq_agent-01koj79B5B"
-S3_STAGING_BUCKET = os.environ.get("S3_STAGING_BUCKET", "dq-agent-staging-dev-joohyery")
+# Set AGENT_RUNTIME_ARN env var to invoke via AgentCore; leave empty for direct invocation
+DEFAULT_AGENT_ARN = os.environ.get("AGENT_RUNTIME_ARN", "")
+S3_STAGING_BUCKET = os.environ.get("S3_STAGING_BUCKET", "")
 
 
 @router.post("/run-validation")

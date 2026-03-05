@@ -9,6 +9,13 @@ Parameters:
     Type: String
     Default: dq-agent-web.tar.gz
     Description: S3 key for the deployment package
+  AgentRuntimeArn:
+    Type: String
+    Default: ''
+    Description: Bedrock AgentCore runtime ARN (leave empty for direct invocation)
+  S3StagingBucket:
+    Type: String
+    Description: S3 bucket for data staging and pipeline artifacts
 
 Mappings:
   CidrMappings:
@@ -151,8 +158,8 @@ Resources:
                   - s3:PutObject
                   - s3:ListBucket
                 Resource:
-                  - arn:aws:s3:::dq-agent-staging-dev-joohyery
-                  - arn:aws:s3:::dq-agent-staging-dev-joohyery/*
+                  - !Sub 'arn:aws:s3:::${S3StagingBucket}'
+                  - !Sub 'arn:aws:s3:::${S3StagingBucket}/*'
               - Effect: Allow
                 Action:
                   - bedrock-agentcore:InvokeAgent
@@ -501,8 +508,8 @@ Resources:
       CloudWatchLogGroupName: !Sub '/aws/ssm/${DQAgentDeploySSMDoc}'
       S3Bucket: !Ref S3CodeBucket
       S3Key: !Ref S3CodeKey
-      AgentRuntimeArn: 'arn:aws:bedrock-agentcore:us-east-1:163720405317:runtime/ai_dq_agent-01koj79B5B'
-      S3StagingBucket: dq-agent-staging-dev-joohyery
+      AgentRuntimeArn: !Ref AgentRuntimeArn
+      S3StagingBucket: !Ref S3StagingBucket
       AwsRegion: !Ref 'AWS::Region'
 
   # Step 2: Check Deploy completion

@@ -34,7 +34,7 @@ export default function App() {
   const [records, setRecords] = useState<DataRecord[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [dataSource, setDataSource] = useState<string>('s3://dq-agent-staging-dev-joohyery/sample/data.jsonl');
+  const [dataSource, setDataSource] = useState<string>('');
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [activeHref, setActiveHref] = useState('/architecture');
   const { notifications, notifySuccess, notifyError } = useNotifications();

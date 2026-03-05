@@ -2,11 +2,18 @@
 # Deploy DQ Agent Web to a new EC2 instance via CloudFormation
 set -euo pipefail
 
-STACK_NAME="dq-agent-web"
-REGION="us-east-1"
-S3_BUCKET="dq-agent-web-deploy-163720405317"
+STACK_NAME="${STACK_NAME:-dq-agent-web}"
+REGION="${AWS_REGION:-us-east-1}"
 S3_KEY="dq-agent-web.tar.gz"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Derive deploy bucket name from AWS account ID
+if [ -z "${DEPLOY_S3_BUCKET:-}" ]; then
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    S3_BUCKET="dq-agent-web-deploy-${AWS_ACCOUNT_ID}"
+else
+    S3_BUCKET="$DEPLOY_S3_BUCKET"
+fi
 
 echo "============================================"
 echo " DQ Agent Web - Deploy"
@@ -49,7 +56,9 @@ aws cloudformation deploy \
     --region "$REGION" \
     --parameter-overrides \
         S3CodeBucket="$S3_BUCKET" \
-        S3CodeKey="$S3_KEY"
+        S3CodeKey="$S3_KEY" \
+        AgentRuntimeArn="${AGENT_RUNTIME_ARN:-}" \
+        S3StagingBucket="${S3_STAGING_BUCKET:?Error: S3_STAGING_BUCKET env var is required}"
 
 echo ""
 echo "============================================"
