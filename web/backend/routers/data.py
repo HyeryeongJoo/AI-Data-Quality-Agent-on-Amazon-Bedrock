@@ -13,7 +13,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-S3_BUCKET = os.environ.get("S3_STAGING_BUCKET", "")
+S3_BUCKET = os.environ.get("S3_STAGING_BUCKET", "dq-agent-staging-dev-joohyery")
 S3_KEY = os.environ.get("S3_SAMPLE_KEY", "sample/data.jsonl")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 

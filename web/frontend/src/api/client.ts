@@ -41,7 +41,7 @@ export async function startValidation(s3DataPath?: string): Promise<RunValidatio
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      s3_data_path: s3DataPath,
+      s3_data_path: s3DataPath || 's3://dq-agent-staging-dev-joohyery/sample/data.jsonl',
       dry_run: true,
     }),
   });
