@@ -105,13 +105,111 @@ cd web/frontend && npm install && npm run build && cd ../..
 
 ### AWS 배포 (CloudFormation)
 
-```bash
-export AWS_REGION=us-east-1
-export DEPLOY_S3_BUCKET=my-deploy-bucket
-export S3_STAGING_BUCKET=my-staging-bucket
-export AGENT_RUNTIME_ARN=arn:aws:bedrock-agentcore:...  # 선택사항
+하나의 명령어로 전체 애플리케이션 스택을 AWS에 배포합니다. 포함된 CloudFormation 템플릿이 모든 인프라를 자동으로 프로비저닝합니다.
 
+#### 생성되는 리소스
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    CloudFront (HTTPS)                    │
+│               https://xxxxx.cloudfront.net               │
+└────────────────────────┬────────────────────────────────┘
+                         │ Port 8001
+┌────────────────────────▼────────────────────────────────┐
+│  EC2 인스턴스 (Amazon Linux 2023, Graviton m7g.medium)  │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │  FastAPI 백엔드 (uvicorn, systemd 관리)          │    │
+│  │  React 프론트엔드 (정적 파일, FastAPI에서 서빙)   │    │
+│  └─────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
+         │                              │
+         ▼                              ▼
+┌─────────────────┐     ┌──────────────────────────────┐
+│  S3 스테이징     │     │  Bedrock AgentCore Runtime   │
+│  (데이터 + 보고서)│     │  (AI DQ 검증 파이프라인)      │
+└─────────────────┘     └──────────────────────────────┘
+```
+
+| 리소스 | 상세 |
+|--------|------|
+| **VPC** | 전용 VPC (10.4.0.0/16), 퍼블릭 서브넷, IGW, 라우트 테이블 |
+| **EC2** | `m7g.medium` (ARM64 Graviton), 30GB gp3 EBS, 암호화 |
+| **보안 그룹** | CloudFront에서만 인바운드 허용 (AWS prefix list), 포트 8001 |
+| **IAM 역할** | SSM, CloudWatch, Bedrock, S3 접근 권한의 EC2 역할 |
+| **CloudFront** | HTTPS 배포, HTTP/2+3 지원, API 경로 캐싱 비활성화 |
+| **SSM 문서** | 자동 배포: Python 3.12, Node.js 22 설치, 앱 빌드 및 시작 |
+| **Lambda (x2)** | SSM 문서 실행 및 완료 확인 오케스트레이션 |
+
+#### 사전 요구사항
+
+- CloudFormation 스택, VPC, EC2, IAM 역할, CloudFront, Lambda, SSM 문서를 생성할 수 있는 권한이 설정된 AWS CLI
+- 데이터 스테이징용 S3 버킷 (파이프라인이 데이터와 보고서를 읽고 쓰는 버킷)
+- (선택) AgentCore를 통해 에이전트를 실행하는 경우 Bedrock AgentCore 런타임 ARN
+
+#### 배포 단계
+
+```bash
+# 1. 필수 환경변수 설정
+export AWS_REGION=us-east-1
+export S3_STAGING_BUCKET=my-staging-bucket          # 필수: 데이터 및 보고서용 S3 버킷
+
+# 2. 선택 환경변수 설정
+export AGENT_RUNTIME_ARN=arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/my-agent-xxxxx
+export DEPLOY_S3_BUCKET=my-deploy-bucket            # 미설정 시 dq-agent-web-deploy-<계정ID>로 자동 생성
+export STACK_NAME=dq-agent-web                      # 미설정 시 dq-agent-web
+
+# 3. 배포 실행
 ./web/deploy.sh
+```
+
+스크립트가 수행하는 작업:
+1. **패키징** — 애플리케이션 (백엔드 + 프론트엔드 소스)을 tarball로 압축
+2. **S3 버킷 생성** — 배포 패키지 저장용 (미지정 시 AWS 계정 ID에서 자동 생성)
+3. **업로드** — 패키지를 S3에 업로드
+4. **CloudFormation 스택 배포** — 전체 인프라 프로비저닝 후 SSM 문서를 실행하여 EC2에서 설치, 빌드, 애플리케이션 시작
+
+#### 배포 확인
+
+```bash
+# 스크립트가 CloudFront URL과 EC2 인스턴스 ID를 출력합니다
+# 헬스 체크:
+curl https://<cloudfront-domain>.cloudfront.net/api/health
+# 예상 응답: {"status":"ok"}
+
+# 웹 대시보드 열기:
+open https://<cloudfront-domain>.cloudfront.net
+```
+
+#### 코드 업데이트 배포
+
+기존 스택에 코드 변경 사항을 배포하려면 `./web/deploy.sh`를 다시 실행합니다. 애플리케이션 코드만 변경된 경우 (CloudFormation 템플릿 변경 없음), SSM을 통해 EC2에 직접 재배포할 수 있습니다:
+
+```bash
+# 새 패키지를 S3에 업로드
+aws s3 cp /tmp/dq-agent-web.tar.gz s3://<deploy-bucket>/dq-agent-web.tar.gz
+
+# SSM으로 EC2에 재배포
+aws ssm send-command \
+  --instance-ids <instance-id> \
+  --document-name "AWS-RunShellScript" \
+  --parameters commands='[
+    "aws s3 cp s3://<deploy-bucket>/dq-agent-web.tar.gz /tmp/dq-agent-web.tar.gz",
+    "rm -rf /opt/dq-agent-web/backend /opt/dq-agent-web/frontend",
+    "tar -xzf /tmp/dq-agent-web.tar.gz -C /opt/dq-agent-web",
+    "cd /opt/dq-agent-web/frontend && npm ci && npm run build",
+    "chown -R ec2-user:ec2-user /opt/dq-agent-web",
+    "systemctl restart dq-agent-web"
+  ]'
+```
+
+#### 리소스 정리
+
+```bash
+# 전체 스택 삭제 (VPC, EC2, CloudFront, IAM 역할 등)
+aws cloudformation delete-stack --stack-name dq-agent-web --region us-east-1
+
+# (선택) 배포용 S3 버킷 삭제
+aws s3 rb s3://<deploy-bucket> --force
 ```
 
 ## 프로젝트 구조
