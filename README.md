@@ -24,6 +24,20 @@ coordinator → profiler → schema_analyzer → rule_validator
 
 **33 tools** across validation, profiling, lineage, S3/DynamoDB, Slack, and more.
 
+## Screenshots
+
+### Data Validation — Sample Data Table
+![Sample Data](img/sample_data.png)
+Load sample delivery data from S3 or upload your own CSV file to prepare data for validation.
+
+### Validation Results — Summary & Dynamic Rules
+![Validation Results Summary](img/result_1.png)
+Health score, LLM token usage, cost estimate, and auto-generated dynamic rules (AUTO-001 ~ AUTO-007).
+
+### Validation Results — Pipeline Stages & Per-Record Details
+![Validation Results Detail](img/result_2.png)
+Stage-by-stage execution timeline, error type distribution, and per-record validation details with LLM confidence and correction suggestions.
+
 ## Quick Start
 
 ### Prerequisites
