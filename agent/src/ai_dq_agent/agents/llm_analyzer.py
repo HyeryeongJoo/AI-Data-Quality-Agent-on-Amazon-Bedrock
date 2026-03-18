@@ -135,16 +135,24 @@ def invoke_llm_analyzer(state: dict) -> dict:
     # Combine cached + new judgments
     all_judgments = cached_judgments + primary_judgments
 
-    # Compute stats
-    error_count = sum(1 for j in all_judgments if j.get("is_error"))
-    high_count = sum(1 for j in all_judgments if j.get("confidence") == "HIGH")
-    medium_count = sum(1 for j in all_judgments if j.get("confidence") == "MEDIUM")
-    low_count = sum(1 for j in all_judgments if j.get("confidence") == "LOW")
+    # Compute stats — deduplicate by record_id for unique record counts
+    # When one record has multiple judgments (multiple rule violations), count the record once
+    seen_ids: dict[str, dict] = {}
+    for j in all_judgments:
+        rid = str(j.get("record_id", ""))
+        if rid not in seen_ids:
+            seen_ids[rid] = j
+
+    unique_judgments = list(seen_ids.values())
+    error_count = sum(1 for j in unique_judgments if j.get("is_error"))
+    high_count = sum(1 for j in unique_judgments if j.get("confidence") == "HIGH")
+    medium_count = sum(1 for j in unique_judgments if j.get("confidence") == "MEDIUM")
+    low_count = sum(1 for j in unique_judgments if j.get("confidence") == "LOW")
 
     # Error-only counts by confidence (for health score calculation)
-    high_error_count = sum(1 for j in all_judgments if j.get("is_error") and j.get("confidence") == "HIGH")
-    medium_error_count = sum(1 for j in all_judgments if j.get("is_error") and j.get("confidence") == "MEDIUM")
-    low_error_count = sum(1 for j in all_judgments if j.get("is_error") and j.get("confidence") == "LOW")
+    high_error_count = sum(1 for j in unique_judgments if j.get("is_error") and j.get("confidence") == "HIGH")
+    medium_error_count = sum(1 for j in unique_judgments if j.get("is_error") and j.get("confidence") == "MEDIUM")
+    low_error_count = sum(1 for j in unique_judgments if j.get("is_error") and j.get("confidence") == "LOW")
 
     # Write judgments to S3
     judgments_s3_path = f"{state['s3_staging_prefix']}judgments.jsonl"
@@ -164,7 +172,7 @@ def invoke_llm_analyzer(state: dict) -> dict:
     result["analysis_stats"] = {
         "pipeline_id": pipeline_id,
         "judgments_s3_path": judgments_s3_path,
-        "total_analyzed": len(all_judgments),
+        "total_analyzed": len(unique_judgments),
         "error_count": error_count,
         "high_confidence_count": high_count,
         "medium_confidence_count": medium_count,

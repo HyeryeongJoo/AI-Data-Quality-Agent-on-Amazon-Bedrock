@@ -264,10 +264,11 @@ function SummaryCards({ result }: Props) {
           <Box variant="h1">{result.total_records?.toLocaleString() ?? 0}</Box>
         </div>
         <div>
-          <Box variant="awsui-key-label">발견된 위반 건수</Box>
+          <Box variant="awsui-key-label">LLM 확정 오류 레코드</Box>
           <Box variant="h1" color="text-status-error">
             {result.violation_count?.toLocaleString() ?? 0}
           </Box>
+          <Box variant="small" color="text-body-secondary">고유 레코드 기준</Box>
         </div>
       </ColumnLayout>
 
