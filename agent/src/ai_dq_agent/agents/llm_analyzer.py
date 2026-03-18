@@ -78,14 +78,6 @@ def invoke_llm_analyzer(state: dict) -> dict:
     )
     suspects = read_resp.get("records", [])
 
-    # Apply LLM max items cap
-    if len(suspects) > settings.llm_max_items:
-        logger.warning(
-            "[%s] Suspect count %d exceeds llm_max_items %d",
-            pipeline_id, len(suspects), settings.llm_max_items,
-        )
-        suspects = suspects[:settings.llm_max_items]
-
     # --- Cache lookup ---
     cache_keys = [_build_cache_key(s) for s in suspects]
     cache_resp = judgment_cache_read(pattern_keys=cache_keys)

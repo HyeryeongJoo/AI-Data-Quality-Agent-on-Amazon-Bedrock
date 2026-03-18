@@ -48,7 +48,6 @@ class Settings(BaseSettings):
     # Processing Limits
     chunk_size: int = Field(default=100_000, ge=1_000, le=1_000_000)
     llm_batch_size: int = Field(default=50, ge=1, le=200)
-    llm_max_items: int = Field(default=10_000, ge=100, le=100_000)
     pipeline_timeout_minutes: int = Field(default=30, ge=5, le=1440)
     approval_timeout_hours: int = Field(default=24, ge=1, le=168)
     max_retries: int = Field(default=3, ge=1, le=10)

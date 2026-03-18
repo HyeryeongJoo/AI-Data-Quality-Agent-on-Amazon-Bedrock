@@ -156,11 +156,6 @@ def invoke_semantic_analyzer(state: dict) -> dict:
         suspects.extend(delegated)
         logger.info("[%s] Added %d delegated suspects from rule_validator", pipeline_id, len(delegated))
 
-    # Apply LLM max items cap
-    if len(suspects) > settings.llm_max_items:
-        logger.warning("[%s] Suspect count %d exceeds llm_max_items %d", pipeline_id, len(suspects), settings.llm_max_items)
-        suspects = suspects[:settings.llm_max_items]
-
     # --- Impact scoring ---
     lineage_info = lineage_read(table_name=table_name)
     if lineage_info.get("status") == "success":
