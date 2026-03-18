@@ -17,8 +17,8 @@ import type { DataRecord, ValidationResult } from './types';
 const NAV_ITEMS = [
   { type: 'link' as const, text: '에이전트 아키텍처', href: '/architecture' },
   { type: 'divider' as const },
-  { type: 'link' as const, text: '데이터 검증 (기존)', href: '/validation-v1' },
-  { type: 'link' as const, text: '데이터 검증 (이상치탐지)', href: '/validation-v2' },
+  { type: 'link' as const, text: '기본 검증 (규칙 + LLM)', href: '/validation-v1' },
+  { type: 'link' as const, text: '확장 검증 (규칙 + 이상치 + LLM)', href: '/validation-v2' },
 ];
 
 const PAGE_META: Record<string, { title: string; description: string }> = {
@@ -27,11 +27,11 @@ const PAGE_META: Record<string, { title: string; description: string }> = {
     description: 'Amazon Bedrock AgentCore 기반 AI 데이터 퀄리티 검증 에이전트의 구조와 동작 원리',
   },
   '/validation-v1': {
-    title: '데이터 검증 (기존)',
+    title: '기본 검증 (규칙 + LLM)',
     description: '규칙 기반 검증 → LLM 분석 파이프라인 (5개 노드)',
   },
   '/validation-v2': {
-    title: '데이터 검증 (이상치탐지)',
+    title: '확장 검증 (규칙 + 이상치 + LLM)',
     description: '규칙 기반 검증 → 이상치 탐지 → LLM 분석 파이프라인 (6개 노드)',
   },
 };
