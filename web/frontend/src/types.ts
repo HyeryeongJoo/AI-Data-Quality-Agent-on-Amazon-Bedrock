@@ -80,6 +80,16 @@ export interface AnalysisStats {
   output_tokens?: number;
 }
 
+export interface AnomalyStats {
+  pipeline_id?: string;
+  statistical_count: number;
+  contextual_count: number;
+  total_added: number;
+  methods_used: string[];
+  numeric_cols_analyzed?: string[];
+  categorical_cols_analyzed?: string[];
+}
+
 export interface StageResult {
   status: 'completed' | 'failed';
   started_at: string;
@@ -102,6 +112,7 @@ export interface ValidationResult {
   suspects?: Suspect[];
   judgments?: Judgment[];
   dynamic_rules?: DynamicRule[];
+  anomaly_stats?: AnomalyStats;
   error?: string;
 }
 

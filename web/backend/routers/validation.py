@@ -244,7 +244,8 @@ def _invoke_agentcore(
         stage_info = f" (실패 단계: {'; '.join(failed_details)})" if failed_details else ""
         raise RuntimeError(f"AgentCore pipeline error{stage_info}: {result['error']}")
 
-    logger.info("AgentCore pipeline completed: pipeline_id=%s, suspects=%d, judgments=%d",
-                result.get("pipeline_id"), len(result.get("suspects", [])), len(result.get("judgments", [])))
+    stage_keys = list(result.get("stage_results", {}).keys())
+    logger.info("AgentCore pipeline completed: pipeline_id=%s, suspects=%d, judgments=%d, stage_results_keys=%s",
+                result.get("pipeline_id"), len(result.get("suspects", [])), len(result.get("judgments", [])), stage_keys)
 
     return result

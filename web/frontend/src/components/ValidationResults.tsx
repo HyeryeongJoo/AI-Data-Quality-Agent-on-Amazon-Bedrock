@@ -13,7 +13,7 @@ import TextFilter from '@cloudscape-design/components/text-filter';
 import Alert from '@cloudscape-design/components/alert';
 import ExpandableSection from '@cloudscape-design/components/expandable-section';
 import { useCollection } from '@cloudscape-design/collection-hooks';
-import type { ValidationResult, RecordValidationDetail, Suspect, Judgment, StageResult, DynamicRule } from '../types';
+import type { ValidationResult, RecordValidationDetail, Suspect, Judgment, StageResult, DynamicRule, AnomalyStats } from '../types';
 
 interface Props {
   result: ValidationResult;
@@ -141,9 +141,11 @@ function StageTimeline({ result }: Props) {
   if (entries.length === 0) return null;
 
   const totalDuration = entries.reduce((sum, s) => sum + (s.duration_seconds ?? 0), 0);
+  const hasAnomaly = 'anomaly_detector' in stageResults;
+  const versionLabel = hasAnomaly ? 'v2 (이상치탐지 포함)' : 'v1 (기존)';
 
   return (
-    <Container header={<Header variant="h2">파이프라인 단계별 실행 결과</Header>}>
+    <Container header={<Header variant="h2" description={`파이프라인 버전: ${versionLabel}`}>파이프라인 단계별 실행 결과</Header>}>
       <Table
         variant="embedded"
         items={entries}
@@ -269,28 +271,46 @@ function SummaryCards({ result }: Props) {
         </div>
       </ColumnLayout>
 
-      {result.validation_stats && (
-        <Box margin={{ top: 'l' }}>
-          <ColumnLayout columns={4} variant="text-grid">
-            <div>
-              <Box variant="awsui-key-label">규칙 기반 의심 항목</Box>
-              <Box variant="p">{result.validation_stats.suspect_count}건</Box>
-            </div>
-            <div>
-              <Box variant="awsui-key-label">동적 생성 규칙 수</Box>
-              <Box variant="p">{result.validation_stats.dynamic_rule_count}개</Box>
-            </div>
-            <div>
-              <Box variant="awsui-key-label">LLM 확정 오류</Box>
-              <Box variant="p">{result.analysis_stats?.error_count ?? 0}건</Box>
-            </div>
-            <div>
-              <Box variant="awsui-key-label">오탐 제거 (정상 판정)</Box>
-              <Box variant="p">{(result.analysis_stats?.total_analyzed ?? 0) - (result.analysis_stats?.error_count ?? 0)}건</Box>
-            </div>
-          </ColumnLayout>
-        </Box>
-      )}
+      {result.validation_stats && (() => {
+        const anomaly = result.anomaly_stats;
+        const hasAnomaly = anomaly && anomaly.total_added > 0;
+        const analysisStats = result.analysis_stats;
+        const highCount = analysisStats?.high_confidence_count ?? 0;
+        const errorCount = analysisStats?.error_count ?? 0;
+        const falsePositives = (analysisStats?.total_analyzed ?? 0) - errorCount;
+
+        return (
+          <Box margin={{ top: 'l' }}>
+            <ColumnLayout columns={hasAnomaly ? 5 : 4} variant="text-grid">
+              <div>
+                <Box variant="awsui-key-label">규칙 기반 의심 항목</Box>
+                <Box variant="p">{result.validation_stats.suspect_count}건</Box>
+              </div>
+              {hasAnomaly && (
+                <div>
+                  <Box variant="awsui-key-label">이상치 탐지 추가 의심</Box>
+                  <Box variant="p" color="text-status-warning">{anomaly.total_added}건</Box>
+                  <Box variant="small" color="text-body-secondary">
+                    통계적 {anomaly.statistical_count} + 맥락적 {anomaly.contextual_count}
+                  </Box>
+                </div>
+              )}
+              <div>
+                <Box variant="awsui-key-label">HIGH 신뢰도 판정</Box>
+                <Box variant="p">{highCount}건</Box>
+              </div>
+              <div>
+                <Box variant="awsui-key-label">LLM 확정 오류</Box>
+                <Box variant="p" color="text-status-error">{errorCount}건</Box>
+              </div>
+              <div>
+                <Box variant="awsui-key-label">오탐 제거 (정상 판정)</Box>
+                <Box variant="p">{falsePositives}건</Box>
+              </div>
+            </ColumnLayout>
+          </Box>
+        );
+      })()}
 
       {(() => {
         const inputTokens = result.analysis_stats?.input_tokens ?? 0;
@@ -450,12 +470,16 @@ function ErrorTypeDistribution({ result }: Props) {
   );
 }
 
-/** Clean up record_id that may be a stringified Python dict like "{'record_id': '123'}" */
+/** Clean up record_id that may be a stringified Python dict like "{'record_id': '123'}" or "{'record_id': 123}" */
 function cleanRecordId(raw: string): string {
-  const cleaned = String(raw);
-  // Match Python dict format: {'record_id': '...'} or {"record_id": "..."}
-  const match = cleaned.match(/['"]record_id['"]\s*:\s*['"]([^'"]+)['"]/);
-  return match ? match[1] : cleaned;
+  const cleaned = String(raw).trim();
+  // Match Python dict format with string value: {'record_id': '...'} or {"record_id": "..."}
+  const strMatch = cleaned.match(/['"]record_id['"]\s*:\s*['"]([^'"]+)['"]/);
+  if (strMatch) return strMatch[1];
+  // Match Python dict format with numeric value: {'record_id': 123}
+  const numMatch = cleaned.match(/['"]record_id['"]\s*:\s*(\d+)/);
+  if (numMatch) return numMatch[1];
+  return cleaned;
 }
 
 function DetailTable({ result }: Props) {
@@ -586,7 +610,7 @@ function DetailTable({ result }: Props) {
             variant="h2"
             description="레코드별 규칙 위반 사항 및 LLM 판정 결과"
           >
-            {`레코드별 상세 검증 결과: 비정상 판단 레코드 ${details.filter(d => d.has_error).length}건, 총 위반 건수 ${details.reduce((sum, d) => sum + d.suspects.length, 0)}건`}
+            {`레코드별 상세 검증 결과: LLM 확정 오류 ${details.filter(d => d.judgment?.is_error).length}건 / 의심 레코드 ${details.length}건, 총 규칙 위반 ${details.reduce((sum, d) => sum + d.suspects.length, 0)}건`}
           </Header>
         }
         items={items}

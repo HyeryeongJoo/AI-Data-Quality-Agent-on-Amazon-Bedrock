@@ -61,6 +61,7 @@ def invoke(payload, context):
         health = result.get("pipeline_state", {}).get("table_health", {})
         validation_stats = result.get("validation_stats", {})
         analysis_stats = result.get("analysis_stats", {})
+        anomaly_stats = result.get("anomaly_stats", {})
 
         # Read back detailed suspects and judgments from S3
         from ai_dq_agent.tools import s3_read_objects
@@ -97,9 +98,11 @@ def invoke(payload, context):
             "suspects": suspects,
             "judgments": judgments,
             "dynamic_rules": dynamic_rules,
+            "anomaly_stats": anomaly_stats,
         }
-        logger.info("Pipeline completed: pipeline_id=%s, suspects=%d, judgments=%d",
-                     response["pipeline_id"], len(suspects), len(judgments))
+        logger.info("Pipeline completed: pipeline_id=%s, suspects=%d, judgments=%d, stage_results_keys=%s",
+                     response["pipeline_id"], len(suspects), len(judgments),
+                     list(response["stage_results"].keys()))
         return response
 
     except Exception as e:

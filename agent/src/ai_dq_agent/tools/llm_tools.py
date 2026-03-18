@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import time
 
 from botocore.exceptions import ClientError
@@ -137,10 +138,27 @@ def _extract_response_text(response: dict) -> str:
     return "\n".join(texts)
 
 
+def _normalize_record_id(raw) -> str:
+    """Normalize record_id that may be a stringified Python dict.
+
+    LLM sometimes echoes back the whole dict, e.g. "{'record_id': 123}"
+    instead of just "123".
+    """
+    s = str(raw).strip()
+    # Match Python dict format: {'record_id': '...'} or {'record_id': 123}
+    m = re.search(r"['\"]record_id['\"]\s*:\s*['\"]?([^'\"}\s]+)", s)
+    if m:
+        return m.group(1)
+    return s
+
+
 def _parse_llm_response(text: str, batch: list[dict]) -> dict:
     """Parse LLM JSON response into structured results."""
     results = []
     failures = []
+
+    # Build a lookup from batch to resolve LLM record_id back to original
+    batch_ids = {_normalize_record_id(item.get("record_id", "")): str(item.get("record_id", "")) for item in batch}
 
     # Try to extract JSON array from response
     try:
@@ -162,8 +180,14 @@ def _parse_llm_response(text: str, batch: list[dict]) -> dict:
                 failures.append({"record_id": item.get("record_id", ""), "error": "Missing evidence field"})
                 continue
 
+            # Normalize record_id from LLM output
+            raw_rid = item.get("record_id", "")
+            normalized_rid = _normalize_record_id(raw_rid)
+            # Use original batch record_id if available, otherwise use normalized
+            final_rid = batch_ids.get(normalized_rid, normalized_rid)
+
             results.append({
-                "record_id": item.get("record_id", ""),
+                "record_id": final_rid,
                 "is_error": item.get("is_error", False),
                 "error_type": item.get("error_type", ""),
                 "confidence": item.get("confidence", "LOW"),
