@@ -16,7 +16,9 @@ import type { DataRecord, ValidationResult } from './types';
 
 const NAV_ITEMS = [
   { type: 'link' as const, text: '에이전트 아키텍처', href: '/architecture' },
-  { type: 'link' as const, text: '데이터 검증 실행', href: '/validation' },
+  { type: 'divider' as const },
+  { type: 'link' as const, text: '데이터 검증 (기존)', href: '/validation-v1' },
+  { type: 'link' as const, text: '데이터 검증 (이상치탐지)', href: '/validation-v2' },
 ];
 
 const PAGE_META: Record<string, { title: string; description: string }> = {
@@ -24,9 +26,13 @@ const PAGE_META: Record<string, { title: string; description: string }> = {
     title: '에이전트 아키텍처',
     description: 'Amazon Bedrock AgentCore 기반 AI 데이터 퀄리티 검증 에이전트의 구조와 동작 원리',
   },
-  '/validation': {
-    title: '데이터 검증 실행',
-    description: '데이터를 로드하고 AI 에이전트로 데이터 품질을 검증합니다',
+  '/validation-v1': {
+    title: '데이터 검증 (기존)',
+    description: '규칙 기반 검증 → LLM 분석 파이프라인 (5개 노드)',
+  },
+  '/validation-v2': {
+    title: '데이터 검증 (이상치탐지)',
+    description: '규칙 기반 검증 → 이상치 탐지 → LLM 분석 파이프라인 (6개 노드)',
   },
 };
 
@@ -34,7 +40,7 @@ export default function App() {
   const [records, setRecords] = useState<DataRecord[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [dataSource, setDataSource] = useState<string>('');
+  const [dataSource, setDataSource] = useState<string>('s3://dq-agent-staging-dev-joohyery/sample/data.jsonl');
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [activeHref, setActiveHref] = useState('/architecture');
   const { notifications, notifySuccess, notifyError } = useNotifications();
@@ -107,7 +113,7 @@ export default function App() {
             }
           >
             {activeHref === '/architecture' && <AgentIntro />}
-            {activeHref === '/validation' && (
+            {(activeHref === '/validation-v1' || activeHref === '/validation-v2') && (
               <SpaceBetween size="l">
                 <SampleDataTable
                   records={records}
@@ -121,6 +127,7 @@ export default function App() {
                 <ValidationRunner
                   hasData={records.length > 0}
                   s3DataPath={dataSource}
+                  pipelineVersion={activeHref === '/validation-v2' ? 'v2' : 'v1'}
                   onValidationComplete={handleValidationComplete}
                   onError={notifyError}
                 />

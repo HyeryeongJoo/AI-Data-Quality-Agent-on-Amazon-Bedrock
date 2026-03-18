@@ -105,7 +105,7 @@ export default function SampleDataTable({ records, columns, onDataLoaded, onSour
               <FileUpload
                 value={uploadFiles}
                 onChange={({ detail }) => handleFileChange(detail.value as File[])}
-                accept=".csv"
+                accept=".csv,.jsonl,.json"
                 i18nStrings={{
                   uploadButtonText: () => uploading ? '업로드 중...' : 'CSV 파일 업로드',
                   dropzoneText: () => 'CSV 파일을 드래그하세요',
@@ -115,7 +115,7 @@ export default function SampleDataTable({ records, columns, onDataLoaded, onSour
                   limitShowFewer: '간략히',
                   limitShowMore: '더보기',
                 }}
-                constraintText="CSV 파일만 지원 (최대 10MB)"
+                constraintText="CSV / JSONL 파일 지원 (최대 10MB)"
                 showFileSize
                 showFileThumbnail={false}
               />

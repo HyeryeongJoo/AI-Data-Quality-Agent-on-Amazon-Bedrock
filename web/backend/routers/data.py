@@ -1,9 +1,10 @@
-"""Data loading router — reads sample data from S3, CSV upload."""
+"""Data loading router — reads sample data from S3, CSV/JSONL upload."""
 
 import csv
 import io
 import json
 import logging
+import math
 import os
 import uuid
 
@@ -13,7 +14,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-S3_BUCKET = os.environ.get("S3_STAGING_BUCKET", "")
+S3_BUCKET = os.environ.get("S3_STAGING_BUCKET", "dq-agent-staging-dev-joohyery")
 S3_KEY = os.environ.get("S3_SAMPLE_KEY", "sample/data.jsonl")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 
@@ -68,7 +69,10 @@ def _parse_value(v):
     except ValueError:
         pass
     try:
-        return float(v)
+        f = float(v)
+        if not math.isfinite(f):
+            return v
+        return f
     except ValueError:
         return v
 
@@ -112,11 +116,55 @@ def _detect_id_column(records: list[dict], columns: list[str]) -> str | None:
     return None
 
 
+def _is_jsonl(text: str) -> bool:
+    """Check if the text content is JSONL format by testing the first line."""
+    first_line = text.strip().split("\n", 1)[0].strip()
+    if first_line.startswith("{"):
+        try:
+            json.loads(first_line)
+            return True
+        except json.JSONDecodeError:
+            pass
+    return False
+
+
+def _sanitize_record(rec: dict) -> dict:
+    """Replace non-finite float values (inf, -inf, nan) with their string representation."""
+    return {
+        k: str(v) if isinstance(v, float) and not math.isfinite(v) else v
+        for k, v in rec.items()
+    }
+
+
+def _parse_jsonl(text: str) -> tuple[list[dict], list[str]]:
+    """Parse JSONL text, return (records, columns)."""
+    records = [_sanitize_record(json.loads(line)) for line in text.strip().split("\n") if line.strip()]
+    all_cols = set()
+    for rec in records:
+        all_cols.update(rec.keys())
+    # Use first record's key order, then remaining keys sorted
+    columns = list(records[0].keys()) if records else []
+    columns += sorted(all_cols - set(columns))
+    return records, columns
+
+
+def _parse_csv(text: str) -> tuple[list[dict], list[str]]:
+    """Parse CSV text, return (records, columns)."""
+    reader = csv.DictReader(io.StringIO(text))
+    records = [
+        {k: _parse_value(v) for k, v in row.items() if k is not None}
+        for row in reader
+    ]
+    columns = list(reader.fieldnames or sorted({k for r in records for k in r}))
+    return records, columns
+
+
 @router.post("/upload-csv")
 async def upload_csv(file: UploadFile = File(...)):
-    """Upload a CSV file, convert to JSONL, store in S3, return records."""
-    if not file.filename or not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="CSV 파일만 업로드할 수 있습니다.")
+    """Upload a CSV/JSONL file, store in S3, return records."""
+    allowed_exts = (".csv", ".jsonl", ".json")
+    if not file.filename or not any(file.filename.lower().endswith(ext) for ext in allowed_exts):
+        raise HTTPException(status_code=400, detail="CSV 또는 JSONL 파일만 업로드할 수 있습니다.")
 
     try:
         raw = await file.read()
@@ -124,17 +172,14 @@ async def upload_csv(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="파일 크기는 10MB를 초과할 수 없습니다.")
 
         text = raw.decode("utf-8-sig")  # handle BOM
-        reader = csv.DictReader(io.StringIO(text))
-        records = [
-            {k: _parse_value(v) for k, v in row.items() if k is not None}
-            for row in reader
-        ]
+
+        if _is_jsonl(text):
+            records, columns = _parse_jsonl(text)
+        else:
+            records, columns = _parse_csv(text)
 
         if not records:
-            raise HTTPException(status_code=400, detail="CSV 파일에 레코드가 없습니다.")
-
-        # Column ordering (from CSV header)
-        columns = list(reader.fieldnames or sorted({k for r in records for k in r}))
+            raise HTTPException(status_code=400, detail="파일에 레코드가 없습니다.")
 
         # Auto-detect ID column → add record_id only in S3 JSONL (not in frontend response)
         id_col = _detect_id_column(records, columns)

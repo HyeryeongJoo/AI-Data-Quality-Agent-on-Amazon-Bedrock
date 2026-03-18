@@ -1,10 +1,16 @@
-"""Graph pipeline definition — 5-node DQ validation pipeline.
+"""Graph pipeline definition — DQ validation pipeline with version support.
 
 Pipeline flow::
 
+    [v1 - 5 nodes]
     coordinator ─(has_data)─► rule_validator ─(has_suspects)─► llm_analyzer → report_notify → correction
                                       │                                            ▲
                                       └──────────(no_suspects)──────────────────────┘
+
+    [v2 - 6 nodes with anomaly detection]
+    coordinator ─(has_data)─► rule_validator → anomaly_detector ─(has_suspects)─► llm_analyzer → report_notify → correction
+                                                       │                                              ▲
+                                                       └──────────(no_suspects)───────────────────────┘
 
 Uses strands.multiagent.graph.GraphBuilder with FunctionNodeAgent adapters.
 Falls back to _SimplePipeline when GraphBuilder is unavailable.
@@ -13,6 +19,7 @@ Falls back to _SimplePipeline when GraphBuilder is unavailable.
 import logging
 from typing import Any
 
+from ai_dq_agent.agents.anomaly_detector import invoke_anomaly_detector
 from ai_dq_agent.agents.coordinator import invoke_coordinator
 from ai_dq_agent.agents.correction import invoke_correction
 from ai_dq_agent.agents.dq_validator_agent import invoke_rule_validator
@@ -82,17 +89,16 @@ class _FunctionNodeAgent:
 
 
 class DQPipeline:
-    """5-node DQ validation pipeline built with ``strands.multiagent.graph.GraphBuilder``.
+    """DQ validation pipeline built with ``strands.multiagent.graph.GraphBuilder``.
 
-    Pipeline flow::
-
-        coordinator ─(has_data)─► rule_validator ─(has_suspects)─► llm_analyzer
-                                          │                              ↓
-                                          └──(no_suspects)──► report_notify → correction
+    Supports two versions:
+    - v1 (5 nodes): coordinator → rule_validator → llm_analyzer → report_notify → correction
+    - v2 (6 nodes): coordinator → rule_validator → anomaly_detector → llm_analyzer → report_notify → correction
     """
 
-    def __init__(self) -> None:
+    def __init__(self, pipeline_version: str = "v1") -> None:
         self._state: dict = {}
+        self._version = pipeline_version
         self._graph = self._build_graph()
 
     def invoke(self, state: dict) -> dict:
@@ -129,7 +135,7 @@ class DQPipeline:
         settings = get_settings()
         builder = GraphBuilder()
 
-        # Register 5 nodes
+        # Register common nodes
         builder.add_node(self._node(invoke_coordinator, "coordinator"), "coordinator")
         builder.add_node(self._node(invoke_rule_validator, "rule_validator"), "rule_validator")
         builder.add_node(self._node(invoke_llm_analyzer, "llm_analyzer"), "llm_analyzer")
@@ -142,11 +148,29 @@ class DQPipeline:
         # Conditional: coordinator → rule_validator (only if data exists)
         builder.add_edge("coordinator", "rule_validator", condition=self._has_data)
 
-        # Conditional: rule_validator → llm_analyzer (only if suspects exist)
-        builder.add_edge("rule_validator", "llm_analyzer", condition=self._has_suspects)
+        if self._version == "v2":
+            # v2: Add anomaly_detector between rule_validator and llm_analyzer
+            builder.add_node(self._node(invoke_anomaly_detector, "anomaly_detector"), "anomaly_detector")
 
-        # Fallback: rule_validator → report_notify (no suspects — skip LLM)
-        builder.add_edge("rule_validator", "report_notify", condition=lambda s: not self._has_suspects(s))
+            # rule_validator → anomaly_detector (always, if data exists)
+            builder.add_edge("rule_validator", "anomaly_detector")
+
+            # anomaly_detector → llm_analyzer (if suspects exist after anomaly detection)
+            builder.add_edge("anomaly_detector", "llm_analyzer", condition=self._has_suspects)
+
+            # Fallback: anomaly_detector → report_notify (no suspects — skip LLM)
+            builder.add_edge("anomaly_detector", "report_notify", condition=lambda s: not self._has_suspects(s))
+
+            logger.info("Building v2 pipeline with anomaly_detector node")
+        else:
+            # v1: Original flow without anomaly_detector
+            # Conditional: rule_validator → llm_analyzer (only if suspects exist)
+            builder.add_edge("rule_validator", "llm_analyzer", condition=self._has_suspects)
+
+            # Fallback: rule_validator → report_notify (no suspects — skip LLM)
+            builder.add_edge("rule_validator", "report_notify", condition=lambda s: not self._has_suspects(s))
+
+            logger.info("Building v1 pipeline (original)")
 
         # Linear: llm_analyzer → report_notify → correction
         builder.add_edge("llm_analyzer", "report_notify")
@@ -188,12 +212,20 @@ def route_after_report(state: dict) -> str:
 class _SimplePipeline:
     """Fallback sequential pipeline when GraphBuilder is unavailable."""
 
+    def __init__(self, pipeline_version: str = "v1") -> None:
+        self._version = pipeline_version
+
     def invoke(self, state: dict) -> dict:
         state = invoke_coordinator(state)
         if route_after_coordinator(state) == "no_data":
             return state
 
         state = invoke_rule_validator(state)
+
+        if self._version == "v2":
+            # v2: Run anomaly_detector after rule_validator
+            state = invoke_anomaly_detector(state)
+            logger.info("Running v2 pipeline with anomaly_detector")
 
         if route_after_rule_validator(state) == "has_suspects":
             state = invoke_llm_analyzer(state)
@@ -211,16 +243,20 @@ class _SimplePipeline:
 # ---------------------------------------------------------------------------
 
 
-def build_pipeline():
-    """Build the 5-node DQ validation pipeline.
+def build_pipeline(pipeline_version: str = "v1"):
+    """Build the DQ validation pipeline.
+
+    Args:
+        pipeline_version: "v1" for original 5-node pipeline,
+                         "v2" for 6-node pipeline with anomaly detection.
 
     Returns ``DQPipeline`` (GraphBuilder-based) when strands.multiagent is
     available, otherwise falls back to ``_SimplePipeline``.
     """
     try:
-        return DQPipeline()
+        return DQPipeline(pipeline_version=pipeline_version)
     except ImportError:
         logger.warning(
             "strands.multiagent.graph not available, using simple sequential runner"
         )
-        return _SimplePipeline()
+        return _SimplePipeline(pipeline_version=pipeline_version)

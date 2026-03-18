@@ -36,9 +36,12 @@ def judgment_cache_read(
     hits = []
     misses = []
 
+    # Deduplicate keys — DynamoDB BatchGetItem rejects duplicate keys
+    unique_keys = list(dict.fromkeys(pattern_keys))
+
     # BatchGetItem supports up to 100 keys per call
-    for i in range(0, len(pattern_keys), 100):
-        batch_keys = pattern_keys[i : i + 100]
+    for i in range(0, len(unique_keys), 100):
+        batch_keys = unique_keys[i : i + 100]
         request_keys = [{"pattern_key": {"S": pk}} for pk in batch_keys]
 
         try:

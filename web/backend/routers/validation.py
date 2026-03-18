@@ -1,10 +1,9 @@
-"""Validation router — invokes DQ pipeline via AgentCore or direct import."""
+"""Validation router — invokes DQ pipeline via Bedrock AgentCore."""
 
 import asyncio
 import json
 import logging
 import os
-import sys
 import time
 import traceback
 import uuid
@@ -23,11 +22,12 @@ logger = logging.getLogger(__name__)
 # In-memory job store
 _jobs: dict = {}
 
-AGENT_CODE_PATH = os.environ.get("AGENT_CODE_PATH", "")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-# Set AGENT_RUNTIME_ARN env var to invoke via AgentCore; leave empty for direct invocation
-DEFAULT_AGENT_ARN = os.environ.get("AGENT_RUNTIME_ARN", "")
-S3_STAGING_BUCKET = os.environ.get("S3_STAGING_BUCKET", "")
+AGENT_RUNTIME_ARN = os.environ.get(
+    "AGENT_RUNTIME_ARN",
+    "arn:aws:bedrock-agentcore:us-east-1:163720405317:runtime/ai_dq_agent-01koj79B5B",
+)
+S3_STAGING_BUCKET = os.environ.get("S3_STAGING_BUCKET", "dq-agent-staging-dev-joohyery")
 
 
 @router.post("/run-validation")
@@ -45,12 +45,12 @@ async def run_validation(req: RunValidationRequest):
 
     thread = Thread(
         target=_execute_pipeline,
-        args=(job_id, req.s3_data_path, req.dry_run, pipeline_id),
+        args=(job_id, req.s3_data_path, req.dry_run, pipeline_id, req.pipeline_version, req.anomaly_methods),
         daemon=True,
     )
     thread.start()
 
-    return {"job_id": job_id, "status": "running"}
+    return {"job_id": job_id, "status": "running", "pipeline_version": req.pipeline_version}
 
 
 @router.get("/validation-status/{job_id}")
@@ -144,18 +144,20 @@ async def validation_stream(job_id: str):
     )
 
 
-def _execute_pipeline(job_id: str, s3_data_path: str, dry_run: bool, pipeline_id: str) -> None:
-    """Run pipeline in background thread."""
-    logger.info("[job=%s] Background thread started (pipeline_id=%s)", job_id, pipeline_id)
+def _execute_pipeline(
+    job_id: str,
+    s3_data_path: str,
+    dry_run: bool,
+    pipeline_id: str,
+    pipeline_version: str = "v1",
+    anomaly_methods: list[str] | None = None,
+) -> None:
+    """Run pipeline in background thread via AgentCore."""
+    logger.info("[job=%s] Background thread started (pipeline_id=%s, version=%s)", job_id, pipeline_id, pipeline_version)
     try:
-        agent_arn = os.environ.get("AGENT_RUNTIME_ARN", DEFAULT_AGENT_ARN)
-        if agent_arn:
-            logger.info("[job=%s] Using AgentCore invocation", job_id)
-            result = _invoke_agentcore(agent_arn, s3_data_path, dry_run, pipeline_id)
-        else:
-            logger.info("[job=%s] Using direct invocation", job_id)
-            result = _invoke_direct(s3_data_path, dry_run)
-
+        result = _invoke_agentcore(
+            AGENT_RUNTIME_ARN, s3_data_path, dry_run, pipeline_id, pipeline_version, anomaly_methods
+        )
         _jobs[job_id]["status"] = "completed"
         _jobs[job_id]["result"] = result
         logger.info("[job=%s] Completed successfully", job_id)
@@ -178,23 +180,36 @@ def _execute_pipeline(job_id: str, s3_data_path: str, dry_run: bool, pipeline_id
         _jobs[job_id]["error"] = detail
 
 
-def _invoke_agentcore(agent_arn: str, s3_data_path: str, dry_run: bool, pipeline_id: str) -> dict:
+def _invoke_agentcore(
+    agent_arn: str,
+    s3_data_path: str,
+    dry_run: bool,
+    pipeline_id: str,
+    pipeline_version: str = "v1",
+    anomaly_methods: list[str] | None = None,
+) -> dict:
     """Invoke the DQ agent via Bedrock AgentCore Runtime API."""
-    # Pipeline processes 100 records through 5 nodes with LLM calls — needs long timeout
+    # Pipeline processes 100 records through 5-6 nodes with LLM calls — needs long timeout
     config = botocore.config.Config(
         read_timeout=600,
         connect_timeout=30,
     )
     client = boto3.client("bedrock-agentcore", region_name=AWS_REGION, config=config)
 
-    payload = json.dumps({
+    payload_dict = {
         "trigger_type": "schedule",
         "dry_run": dry_run,
         "s3_data_path": s3_data_path,
         "pipeline_id": pipeline_id,
-    }).encode("utf-8")
+        "pipeline_version": pipeline_version,
+    }
+    # Include anomaly_methods only for v2 pipeline
+    if pipeline_version == "v2" and anomaly_methods:
+        payload_dict["anomaly_methods"] = anomaly_methods
 
-    logger.info("Invoking AgentCore: %s (timeout=600s)", agent_arn)
+    payload = json.dumps(payload_dict).encode("utf-8")
+
+    logger.info("Invoking AgentCore: %s (timeout=600s, version=%s)", agent_arn, pipeline_version)
 
     response = client.invoke_agent_runtime(
         agentRuntimeArn=agent_arn,
@@ -233,61 +248,3 @@ def _invoke_agentcore(agent_arn: str, s3_data_path: str, dry_run: bool, pipeline
                 result.get("pipeline_id"), len(result.get("suspects", [])), len(result.get("judgments", [])))
 
     return result
-
-
-def _invoke_direct(s3_data_path: str, dry_run: bool) -> dict:
-    """Invoke the pipeline directly by importing the agent code."""
-    src_path = os.path.join(AGENT_CODE_PATH, "src")
-    if src_path not in sys.path:
-        sys.path.insert(0, src_path)
-
-    from ai_dq_agent.main import run_pipeline
-
-    result = run_pipeline(
-        trigger_type="schedule",
-        dry_run=dry_run,
-        s3_data_path=s3_data_path,
-    )
-
-    pipeline_state = result.get("pipeline_state", {})
-    health = pipeline_state.get("table_health", {})
-    validation_stats = result.get("validation_stats", {})
-    analysis_stats = result.get("analysis_stats", {})
-
-    # Extract dynamic rules
-    all_rules = result.get("rule_mappings", [])
-    dynamic_rules = [r for r in all_rules if str(r.get("rule_id", "")).startswith("AUTO-")]
-
-    # Read suspects from S3
-    suspects = []
-    if result.get("suspects_s3_path"):
-        try:
-            from ai_dq_agent.tools import s3_read_objects
-            resp = s3_read_objects(s3_path=result["suspects_s3_path"], file_format="jsonl")
-            suspects = resp.get("records", [])
-        except Exception:
-            logger.warning("Failed to read suspects from S3")
-
-    # Read judgments from S3
-    judgments = []
-    if result.get("judgments_s3_path"):
-        try:
-            from ai_dq_agent.tools import s3_read_objects
-            resp = s3_read_objects(s3_path=result["judgments_s3_path"], file_format="jsonl")
-            judgments = resp.get("records", [])
-        except Exception:
-            logger.warning("Failed to read judgments from S3")
-
-    return {
-        "pipeline_id": result.get("pipeline_id", "unknown"),
-        "health_score": health.get("health_score"),
-        "health_status": health.get("status"),
-        "stage_results": result.get("stage_results", {}),
-        "violation_count": health.get("violation_count", 0),
-        "total_records": validation_stats.get("total_scanned", 0),
-        "validation_stats": validation_stats,
-        "analysis_stats": analysis_stats,
-        "suspects": suspects,
-        "judgments": judgments,
-        "dynamic_rules": dynamic_rules,
-    }

@@ -6,7 +6,14 @@ import sys
 import traceback
 
 # Add src/ to Python path so ai_dq_agent package is importable
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+_AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_AGENT_DIR, "src"))
+
+# Load .env before any settings import — AgentCore runtime cwd may differ
+from dotenv import load_dotenv  # noqa: E402
+
+_env_path = os.path.join(_AGENT_DIR, "env.conf")
+load_dotenv(_env_path, override=False)
 
 # Configure logging so all agent logs go to stdout → CloudWatch
 logging.basicConfig(
@@ -35,9 +42,11 @@ def invoke(payload, context):
         event_records = payload.get("event_records")
         s3_data_path = payload.get("s3_data_path")
         pipeline_id = payload.get("pipeline_id")
+        pipeline_version = payload.get("pipeline_version", "v1")
+        anomaly_methods = payload.get("anomaly_methods")
 
-        logger.info("Starting pipeline: trigger=%s, dry_run=%s, s3_data_path=%s, pipeline_id=%s",
-                     trigger_type, dry_run, s3_data_path, pipeline_id)
+        logger.info("Starting pipeline: trigger=%s, dry_run=%s, s3_data_path=%s, pipeline_id=%s, version=%s",
+                     trigger_type, dry_run, s3_data_path, pipeline_id, pipeline_version)
 
         result = run_pipeline(
             trigger_type=trigger_type,
@@ -45,6 +54,8 @@ def invoke(payload, context):
             dry_run=dry_run,
             s3_data_path=s3_data_path,
             pipeline_id=pipeline_id,
+            pipeline_version=pipeline_version,
+            anomaly_methods=anomaly_methods,
         )
 
         health = result.get("pipeline_state", {}).get("table_health", {})

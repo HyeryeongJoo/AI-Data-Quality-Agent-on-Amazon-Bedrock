@@ -49,6 +49,8 @@ def run_pipeline(
     dry_run: bool = False,
     s3_data_path: str | None = None,
     pipeline_id: str | None = None,
+    pipeline_version: str = "v1",
+    anomaly_methods: list[str] | None = None,
 ) -> dict:
     """Run the DQ validation pipeline.
 
@@ -58,6 +60,8 @@ def run_pipeline(
         dry_run: If True, generate report only without corrections.
         s3_data_path: If provided, read data from this S3 path instead of DynamoDB.
         pipeline_id: If provided, use this pipeline_id instead of generating one.
+        pipeline_version: 'v1' for original pipeline, 'v2' for pipeline with anomaly detection.
+        anomaly_methods: List of anomaly detection methods to use (v2 only).
 
     Returns:
         Final pipeline state dict.
@@ -67,8 +71,10 @@ def run_pipeline(
     # Reset inter-agent shared state for new pipeline run
     reset_pipeline_state()
 
-    # Build graph
-    graph = build_pipeline()
+    # Build graph with version
+    graph = build_pipeline(pipeline_version=pipeline_version)
+
+    logger.info("Running pipeline version: %s", pipeline_version)
 
     # Initial state
     initial_state: dict = {
@@ -78,9 +84,14 @@ def run_pipeline(
         "s3_data_path": s3_data_path,
         "stage_results": {},
         "error": None,
+        "pipeline_version": pipeline_version,
     }
     if pipeline_id:
         initial_state["pipeline_id"] = pipeline_id
+
+    # Add anomaly methods for v2 pipeline
+    if pipeline_version == "v2" and anomaly_methods:
+        initial_state["anomaly_methods"] = anomaly_methods
 
     pipeline_id = "unknown"
 
@@ -153,7 +164,9 @@ def resume_pipeline(state: dict, approval: dict) -> dict:
         state["approved_items"] = []
         state["rejection_reason"] = approval.get("rejection_reason", "")
 
-    graph = build_pipeline()
+    # Resume with same pipeline version
+    pipeline_version = state.get("pipeline_version", "v1")
+    graph = build_pipeline(pipeline_version=pipeline_version)
 
     try:
         result = graph.invoke(state)
@@ -183,7 +196,7 @@ def _send_failure_alert(error_msg: str, pipeline_id: str, settings=None) -> None
 
 def main() -> None:
     """CLI entry point."""
-    parser = argparse.ArgumentParser(description="AI DQ Agent Pipeline v2")
+    parser = argparse.ArgumentParser(description="AI DQ Agent Pipeline")
     parser.add_argument(
         "--trigger",
         choices=["schedule", "event"],
@@ -194,6 +207,18 @@ def main() -> None:
         "--dry-run",
         action="store_true",
         help="Generate report only, skip corrections",
+    )
+    parser.add_argument(
+        "--pipeline-version",
+        choices=["v1", "v2"],
+        default="v1",
+        help="Pipeline version: v1 (original) or v2 (with anomaly detection)",
+    )
+    parser.add_argument(
+        "--anomaly-methods",
+        type=str,
+        default=None,
+        help="Comma-separated list of anomaly methods for v2 (e.g., zscore,iqr,isolation_forest)",
     )
     parser.add_argument(
         "--log-level",
@@ -208,7 +233,17 @@ def main() -> None:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
-    result = run_pipeline(trigger_type=args.trigger, dry_run=args.dry_run)
+    # Parse anomaly methods if provided
+    anomaly_methods = None
+    if args.anomaly_methods:
+        anomaly_methods = [m.strip() for m in args.anomaly_methods.split(",")]
+
+    result = run_pipeline(
+        trigger_type=args.trigger,
+        dry_run=args.dry_run,
+        pipeline_version=args.pipeline_version,
+        anomaly_methods=anomaly_methods,
+    )
     pipeline_id = result.get("pipeline_id", "unknown")
     stages = result.get("stage_results", {})
     status_summary = {k: v.get("status") for k, v in stages.items()}

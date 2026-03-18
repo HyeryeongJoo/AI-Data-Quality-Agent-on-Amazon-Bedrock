@@ -36,14 +36,26 @@ export async function uploadCsvFile(file: File): Promise<SampleDataResponse> {
   return res.json();
 }
 
-export async function startValidation(s3DataPath?: string): Promise<RunValidationResponse> {
+export async function startValidation(
+  s3DataPath?: string,
+  pipelineVersion: 'v1' | 'v2' = 'v1',
+  anomalyMethods?: string[],
+): Promise<RunValidationResponse> {
+  const body: Record<string, unknown> = {
+    s3_data_path: s3DataPath || 's3://dq-agent-staging-dev-joohyery/sample/data.jsonl',
+    dry_run: true,
+    pipeline_version: pipelineVersion,
+  };
+
+  // Include anomaly_methods only for v2 pipeline
+  if (pipelineVersion === 'v2' && anomalyMethods && anomalyMethods.length > 0) {
+    body.anomaly_methods = anomalyMethods;
+  }
+
   return request<RunValidationResponse>('/api/run-validation', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      s3_data_path: s3DataPath || '',
-      dry_run: true,
-    }),
+    body: JSON.stringify(body),
   });
 }
 

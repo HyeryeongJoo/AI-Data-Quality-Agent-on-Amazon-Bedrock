@@ -7,12 +7,15 @@ import Box from '@cloudscape-design/components/box';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import Alert from '@cloudscape-design/components/alert';
+import FormField from '@cloudscape-design/components/form-field';
+import Multiselect, { MultiselectProps } from '@cloudscape-design/components/multiselect';
 import { startValidation, getValidationResults, getValidationStreamUrl } from '../api/client';
 import type { ValidationResult, PipelineProgress, StageProgress } from '../types';
 
 interface Props {
   hasData: boolean;
   s3DataPath?: string;
+  pipelineVersion: 'v1' | 'v2';
   onValidationComplete: (result: ValidationResult) => void;
   onError: (msg: string) => void;
 }
@@ -21,15 +24,26 @@ interface ErrorInfo {
   message: string;
 }
 
-const STAGE_ORDER = ['coordinator', 'rule_validator', 'llm_analyzer', 'report_notify', 'correction'] as const;
+const STAGE_ORDER_V1 = ['coordinator', 'rule_validator', 'llm_analyzer', 'report_notify', 'correction'] as const;
+const STAGE_ORDER_V2 = ['coordinator', 'rule_validator', 'anomaly_detector', 'llm_analyzer', 'report_notify', 'correction'] as const;
 
 const STAGE_LABELS: Record<string, string> = {
   coordinator: 'Coordinator (데이터 수집)',
   rule_validator: 'Rule Validator (규칙 검증)',
+  anomaly_detector: 'Anomaly Detector (이상치 탐지)',
   llm_analyzer: 'LLM Analyzer (AI 분석)',
   report_notify: 'Report & Notify (리포트 생성)',
   correction: 'Correction (데이터 보정)',
 };
+
+const ANOMALY_METHOD_OPTIONS: MultiselectProps.Option[] = [
+  { value: 'zscore', label: 'Z-Score', description: '단변량 통계 (평균 ± 3σ)' },
+  { value: 'iqr', label: 'IQR', description: '단변량 통계 (Q1-1.5*IQR ~ Q3+1.5*IQR)' },
+  { value: 'isolation_forest', label: 'Isolation Forest', description: '다변량 ML 기반 탐지' },
+  { value: 'conditional', label: '조건부 이상치', description: '카테고리별 분포 분석 (예: 품목별 무게)' },
+  { value: 'correlation', label: '상관관계 이탈', description: '컬럼 간 관계 분석 (예: 거리-배송시간)' },
+  { value: 'rare_combination', label: '희귀 조합', description: '드문 값 조합 탐지 (예: 상태 조합)' },
+];
 
 function stageIndicatorType(status: StageProgress['status']): 'pending' | 'in-progress' | 'success' | 'error' {
   switch (status) {
@@ -52,16 +66,20 @@ function stageDuration(stage: StageProgress | undefined): string | null {
   return null;
 }
 
-export default function ValidationRunner({ hasData, s3DataPath, onValidationComplete, onError }: Props) {
+export default function ValidationRunner({ hasData, s3DataPath, pipelineVersion, onValidationComplete, onError }: Props) {
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [lastStatus, setLastStatus] = useState<'idle' | 'completed' | 'error'>('idle');
   const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
   const [lastElapsed, setLastElapsed] = useState(0);
   const [stages, setStages] = useState<Record<string, StageProgress>>({});
+  const [selectedMethods, setSelectedMethods] = useState<MultiselectProps.Option[]>(ANOMALY_METHOD_OPTIONS);
   const timerRef = useRef<number | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const elapsedRef = useRef(0);
+
+  // Get stage order based on pipeline version
+  const stageOrder = pipelineVersion === 'v2' ? STAGE_ORDER_V2 : STAGE_ORDER_V1;
 
   // Stable refs for callbacks
   const onValidationCompleteRef = useRef(onValidationComplete);
@@ -188,7 +206,11 @@ export default function ValidationRunner({ hasData, s3DataPath, onValidationComp
     }
 
     try {
-      const resp = await startValidation(s3DataPath);
+      // Build anomaly methods array for v2 pipeline
+      const methods = pipelineVersion === 'v2'
+        ? selectedMethods.map((m) => m.value as string)
+        : undefined;
+      const resp = await startValidation(s3DataPath, pipelineVersion, methods);
       connectSSE(resp.job_id);
     } catch (e: any) {
       setRunning(false);
@@ -204,29 +226,51 @@ export default function ValidationRunner({ hasData, s3DataPath, onValidationComp
     return `${m}:${String(s).padStart(2, '0')}`;
   };
 
+  const versionLabel = pipelineVersion === 'v2' ? 'v2 (이상치탐지 포함)' : 'v1 (기존)';
+  const headerDescription = pipelineVersion === 'v2'
+    ? 'Bedrock AgentCore Runtime에서 이상치 탐지가 포함된 AI DQ 에이전트 파이프라인을 실행합니다'
+    : 'Bedrock AgentCore Runtime에서 AI DQ 에이전트 파이프라인을 실행합니다';
+
   return (
     <Container
       header={
         <Header
           variant="h2"
-          description="Bedrock AgentCore Runtime에서 AI DQ 에이전트 파이프라인을 실행합니다"
+          description={headerDescription}
           actions={
             <Button
               variant="primary"
               onClick={handleStart}
               loading={running}
-              disabled={!hasData || running}
+              disabled={!hasData || running || (pipelineVersion === 'v2' && selectedMethods.length === 0)}
               iconName="caret-right-filled"
             >
               데이터 퀄리티 검증 시작
             </Button>
           }
         >
-          검증 실행
+          검증 실행 ({versionLabel})
         </Header>
       }
     >
       <SpaceBetween size="l">
+        {/* Anomaly method selection for v2 */}
+        {pipelineVersion === 'v2' && !running && (
+          <FormField
+            label="이상치 탐지 기법"
+            description="v2 파이프라인에서 사용할 이상치 탐지 기법을 선택하세요. 통계적 기법과 문맥적 기법을 조합할 수 있습니다."
+          >
+            <Multiselect
+              selectedOptions={selectedMethods}
+              onChange={({ detail }) => setSelectedMethods(detail.selectedOptions as MultiselectProps.Option[])}
+              options={ANOMALY_METHOD_OPTIONS}
+              placeholder="탐지 기법 선택 (최소 1개)"
+              tokenLimit={3}
+              disabled={running}
+            />
+          </FormField>
+        )}
+
         {running && (
           <>
             <ColumnLayout columns={2}>
@@ -245,7 +289,7 @@ export default function ValidationRunner({ hasData, s3DataPath, onValidationComp
             </ColumnLayout>
 
             <SpaceBetween size="xs">
-              {STAGE_ORDER.map((key) => {
+              {stageOrder.map((key) => {
                 const stage = stages[key];
                 const status = stage?.status ?? 'pending';
                 const duration = stageDuration(stage);
