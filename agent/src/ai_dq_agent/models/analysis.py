@@ -39,7 +39,6 @@ class AnalysisResult(BaseModel):
     medium_confidence_count: int
     low_confidence_count: int
     reflection_mismatch_count: int
-    cache_hit_count: int = 0
     deep_analysis_count: int = 0
 
 

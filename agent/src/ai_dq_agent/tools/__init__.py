@@ -4,7 +4,6 @@ All 33 @tool functions are re-exported here for convenient imports.
 """
 
 from ai_dq_agent.tools.address_tools import address_normalize
-from ai_dq_agent.tools.cache_tools import judgment_cache_read, judgment_cache_write
 from ai_dq_agent.tools.correction_tools import (
     correction_log_write,
     feedback_log_write,
@@ -51,9 +50,6 @@ __all__ = [
     "address_normalize",
     # LLM (1)
     "llm_batch_analyze",
-    # Cache (2)
-    "judgment_cache_read",
-    "judgment_cache_write",
     # Report (1)
     "report_generate",
     # Slack (3)

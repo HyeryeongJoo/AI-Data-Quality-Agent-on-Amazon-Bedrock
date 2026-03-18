@@ -1,10 +1,10 @@
-"""LLM Analyzer — PRIMARY semantic analysis with judgment cache.
+"""LLM Analyzer — PRIMARY semantic analysis.
 
 Simplified from dq_semantic_agent.py:
 - PRIMARY analysis with explicit confidence criteria (REFLECTION removed for speed)
-- Keeps judgment cache for consistency and cost savings
 - Removed: DEEP_ANALYSIS, impact scoring, lineage, root cause tracing
 - Removed: Strands Agent (no ReAct loop — deterministic orchestration)
+- Removed: Judgment cache (no DynamoDB caching)
 """
 
 import logging
@@ -12,8 +12,6 @@ import logging
 from ai_dq_agent.agents._node_utils import node_wrapper, validate_state_keys
 from ai_dq_agent.settings import get_settings
 from ai_dq_agent.tools import (
-    judgment_cache_read,
-    judgment_cache_write,
     llm_batch_analyze,
     pipeline_state_write,
     s3_read_objects,
@@ -51,20 +49,14 @@ PRIMARY_SYSTEM_PROMPT = (
 
 
 
-def _build_cache_key(suspect: dict) -> str:
-    """Build a cache lookup key from a suspect item."""
-    return f"{suspect.get('error_type', '')}:{suspect.get('rule_id', '')}:{','.join(suspect.get('target_columns', []))}"
-
-
 @node_wrapper("llm_analyzer")
 def invoke_llm_analyzer(state: dict) -> dict:
-    """Run PRIMARY LLM analysis with judgment cache.
+    """Run PRIMARY LLM analysis.
 
     Flow:
     1. Load suspects from S3
-    2. Cache lookup — skip already-judged patterns
-    3. PRIMARY LLM analysis on uncached suspects
-    4. Merge results, write cache, save to S3
+    2. PRIMARY LLM analysis on all suspects
+    3. Merge results, save to S3
     """
     validate_state_keys(state, ["suspects_s3_path", "suspect_count"])
     result = {**state}
@@ -78,62 +70,22 @@ def invoke_llm_analyzer(state: dict) -> dict:
     )
     suspects = read_resp.get("records", [])
 
-    # --- Cache lookup ---
-    cache_keys = [_build_cache_key(s) for s in suspects]
-    cache_resp = judgment_cache_read(pattern_keys=cache_keys)
-    cached_results = {
-        hit["pattern_key"]: hit["judgment"]
-        for hit in cache_resp.get("hits", [])
-    }
-
-    cached_judgments = []
-    uncached_suspects = []
-    for i, suspect in enumerate(suspects):
-        key = cache_keys[i]
-        if key in cached_results and cached_results[key] is not None:
-            cached_judgments.append(cached_results[key])
-        else:
-            uncached_suspects.append(suspect)
-
-    cache_hit_count = len(cached_judgments)
-    logger.info("[%s] Cache: %d hits, %d misses", pipeline_id, cache_hit_count, len(uncached_suspects))
-
     # --- PRIMARY LLM analysis ---
-    primary_judgments = []
+    all_judgments = []
     primary_failures = []
     total_input_tokens = 0
     total_output_tokens = 0
-    if uncached_suspects:
+    if suspects:
         primary_resp = llm_batch_analyze(
-            items=uncached_suspects,
+            items=suspects,
             analysis_type="PRIMARY",
             system_prompt=PRIMARY_SYSTEM_PROMPT,
             batch_size=settings.llm_batch_size,
         )
-        primary_judgments = primary_resp.get("results", [])
+        all_judgments = primary_resp.get("results", [])
         primary_failures = primary_resp.get("failures", [])
         total_input_tokens += primary_resp.get("input_tokens", 0)
         total_output_tokens += primary_resp.get("output_tokens", 0)
-
-    # --- Cache write (HIGH confidence only) ---
-    cache_entries = []
-    for j in primary_judgments:
-        if j.get("confidence") == "HIGH":
-            suspect_match = next(
-                (s for s in uncached_suspects if str(s.get("record_id")) == str(j.get("record_id"))),
-                None,
-            )
-            if suspect_match:
-                cache_entries.append({
-                    "pattern_key": _build_cache_key(suspect_match),
-                    "judgment": j,
-                    "confidence": "HIGH",
-                })
-    if cache_entries:
-        judgment_cache_write(entries=cache_entries)
-
-    # Combine cached + new judgments
-    all_judgments = cached_judgments + primary_judgments
 
     # Compute stats — deduplicate by record_id for unique record counts
     # When one record has multiple judgments (multiple rule violations), count the record once
@@ -180,7 +132,6 @@ def invoke_llm_analyzer(state: dict) -> dict:
         "high_error_count": high_error_count,
         "medium_error_count": medium_error_count,
         "low_error_count": low_error_count,
-        "cache_hit_count": cache_hit_count,
         "suspect_input_count": len(suspects),
         "primary_failed_count": len(primary_failures),
         "failure_reasons": all_failure_reasons,

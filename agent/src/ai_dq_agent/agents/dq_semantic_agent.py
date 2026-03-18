@@ -14,8 +14,6 @@ from ai_dq_agent.agents._node_utils import node_wrapper, validate_state_keys
 from ai_dq_agent.settings import get_settings
 from ai_dq_agent.tools import (
     impact_score_compute,
-    judgment_cache_read,
-    judgment_cache_write,
     lineage_read,
     llm_batch_analyze,
     pipeline_state_read,
@@ -29,8 +27,6 @@ logger = logging.getLogger(__name__)
 
 SEMANTIC_TOOLS = [
     llm_batch_analyze,
-    judgment_cache_read,
-    judgment_cache_write,
     lineage_read,
     impact_score_compute,
     root_cause_trace,
@@ -45,7 +41,6 @@ SEMANTIC_SYSTEM_PROMPT = (
     "영향도 기반으로 분석 우선순위를 결정하고, 불확실한 건은 반복 재분석합니다.\n\n"
     "사용 가능한 도구:\n"
     "- llm_batch_analyze: LLM 배치 분석 (PRIMARY/REFLECTION/DEEP_ANALYSIS)\n"
-    "- judgment_cache_read/write: 판정 캐시 읽기/쓰기\n"
     "- lineage_read: 테이블 리니지 읽기\n"
     "- impact_score_compute: 영향도 점수 계산\n"
     "- root_cause_trace: 근본 원인 추적\n"
@@ -99,11 +94,6 @@ DEEP_ANALYSIS_SYSTEM_PROMPT = (
     "- record_id, is_error, confidence (HIGH/MEDIUM/LOW), evidence\n\n"
     "반드시 JSON array만 반환하세요."
 )
-
-
-def _build_cache_key(suspect: dict) -> str:
-    """Build a cache lookup key from a suspect item."""
-    return f"{suspect.get('error_type', '')}:{suspect.get('rule_id', '')}:{','.join(suspect.get('target_columns', []))}"
 
 
 def create_semantic_agent():
@@ -164,28 +154,11 @@ def invoke_semantic_analyzer(state: dict) -> dict:
         logger.info("[%s] Suspects sorted by impact score (max=%.2f)", pipeline_id,
                      impact_resp.get("max_impact_score", 0))
 
-    # --- Cache lookup ---
-    cache_keys = [_build_cache_key(s) for s in suspects]
-    cache_resp = judgment_cache_read(pattern_keys=cache_keys)
-    cached_results = {hit["pattern_key"]: hit["judgment"] for hit in cache_resp.get("hits", [])}
-
-    cached_judgments = []
-    uncached_suspects = []
-    for i, suspect in enumerate(suspects):
-        key = cache_keys[i]
-        if key in cached_results and cached_results[key] is not None:
-            cached_judgments.append(cached_results[key])
-        else:
-            uncached_suspects.append(suspect)
-
-    cache_hit_count = len(cached_judgments)
-    logger.info("[%s] Cache: %d hits, %d misses", pipeline_id, cache_hit_count, len(uncached_suspects))
-
     # --- PRIMARY LLM analysis ---
     primary_judgments = []
-    if uncached_suspects:
+    if suspects:
         primary_resp = llm_batch_analyze(
-            items=uncached_suspects,
+            items=suspects,
             analysis_type="PRIMARY",
             system_prompt=PRIMARY_SYSTEM_PROMPT,
             batch_size=settings.llm_batch_size,
@@ -195,9 +168,9 @@ def invoke_semantic_analyzer(state: dict) -> dict:
     # --- REFLECTION self-verification (Autonomy C) ---
     reflection_mismatch_count = 0
     mismatched_items = []
-    if uncached_suspects:
+    if suspects:
         reflection_resp = llm_batch_analyze(
-            items=uncached_suspects,
+            items=suspects,
             analysis_type="REFLECTION",
             system_prompt=REFLECTION_SYSTEM_PROMPT,
             batch_size=settings.llm_batch_size,
@@ -263,25 +236,8 @@ def invoke_semantic_analyzer(state: dict) -> dict:
         if rid in suspect_map:
             j["impact_score"] = suspect_map[rid].get("impact_score", 0.0)
 
-    # --- Cache write (HIGH confidence only) ---
-    cache_entries = []
-    for j in primary_judgments:
-        if j.get("confidence") == "HIGH":
-            suspect_match = next(
-                (s for s in uncached_suspects if str(s.get("record_id")) == str(j.get("record_id"))),
-                None,
-            )
-            if suspect_match:
-                cache_entries.append({
-                    "pattern_key": _build_cache_key(suspect_match),
-                    "judgment": j,
-                    "confidence": "HIGH",
-                })
-    if cache_entries:
-        judgment_cache_write(entries=cache_entries)
-
-    # Combine cached + new judgments
-    all_judgments = cached_judgments + primary_judgments
+    # Collect all judgments
+    all_judgments = primary_judgments
 
     # Sort by impact_score descending
     all_judgments.sort(key=lambda x: x.get("impact_score", 0), reverse=True)
@@ -312,7 +268,6 @@ def invoke_semantic_analyzer(state: dict) -> dict:
         "low_confidence_count": low_count,
         "reflection_mismatch_count": reflection_mismatch_count,
         "deep_analysis_count": deep_analysis_count,
-        "cache_hit_count": cache_hit_count,
         "delegated_suspect_count": len(delegated),
     }
     result["_records_processed"] = len(all_judgments)

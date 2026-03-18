@@ -43,7 +43,7 @@ function PipelineFlowDiagram() {
       }}>
         {[
           { label: 'Coordinator', sub: '데이터 추출', color: '#0972d3' },
-          { label: 'DQ Validator', sub: '규칙 기반 검증', color: '#037f0c' },
+          { label: 'Rule Validator', sub: '규칙 기반 검증', color: '#037f0c' },
           { label: 'Anomaly Detector', sub: '이상치 탐지', color: '#9469d6' },
           { label: 'LLM Analyzer', sub: 'AI 시맨틱 분석', color: '#d13212' },
           { label: 'Report & Notify', sub: '리포트 & 알림', color: '#ff9900' },
@@ -164,7 +164,7 @@ function StaticVsDynamicRules() {
                 LLM(Claude)이 데이터 프로파일링 결과를 분석하여 런타임에 자동 생성하는 규칙입니다.
                 데이터의 실제 분포와 패턴에서 이상을 감지하여 정적 규칙이 놓치는 오류를 탐지합니다.
               </Box>
-              <Box variant="h4">동적 규칙 생성 과정 (DQ Validator 내부)</Box>
+              <Box variant="h4">동적 규칙 생성 과정 (Rule Validator 내부)</Box>
               <Table
                 variant="embedded"
                 items={[
@@ -248,7 +248,7 @@ function FourLayerValidation() {
               {
                 layer: '1단계',
                 title: '정적 규칙 검증',
-                node: 'DQ Validator',
+                node: 'Rule Validator',
                 color: '#037f0c',
                 what: '사전 정의된 비즈니스 규칙으로 전수 스캔',
                 catches: '형식 오류, 범위 초과, 시간순서 위반, 크로스컬럼 불일치',
@@ -257,7 +257,7 @@ function FourLayerValidation() {
               {
                 layer: '2단계',
                 title: '동적 규칙 검증',
-                node: 'DQ Validator',
+                node: 'Rule Validator',
                 color: '#0972d3',
                 what: 'LLM이 데이터 프로파일링 결과를 보고 자동 생성한 규칙으로 전수 스캔',
                 catches: '정적 규칙이 놓친 크로스컬럼 조건, 데이터 변화에 따른 새 패턴',
@@ -435,12 +435,12 @@ function SuspectFilteringArchitecture() {
       defaultExpanded
       headerText="왜 전체 데이터를 LLM에 보내지 않는가?"
       variant="container"
-      headerDescription="DQ Validator → Anomaly Detector → LLM Analyzer 간 의심 항목(Suspect) 수집 및 필터링 아키텍처"
+      headerDescription="Rule Validator → Anomaly Detector → LLM Analyzer 간 의심 항목(Suspect) 수집 및 필터링 아키텍처"
     >
       <SpaceBetween size="m">
         <Alert type="info" header="예시: 샘플 데이터 151건 기준으로 이해하기 (v2 파이프라인)">
           샘플 데이터 151건(정상 100건 + 이상 51건)을 예로 들겠습니다.
-          먼저 DQ Validator가 151건 전체를 규칙 기반으로 전수 스캔하여 약 34건의 의심 항목(Suspect)을 탐지합니다.
+          먼저 Rule Validator가 151건 전체를 규칙 기반으로 전수 스캔하여 약 34건의 의심 항목(Suspect)을 탐지합니다.
           다음으로 Anomaly Detector가 151건 전체를 통계적/문맥적으로 분석하여,
           규칙으로는 잡히지 않았지만 이상한 레코드(예: 8건)를 추가로 발견하여 기존 suspects에 merge합니다.
           최종적으로 LLM Analyzer는 합산된 약 42건의 의심 항목만 정밀 분석하여 오류를 확정합니다.
@@ -478,7 +478,7 @@ function SuspectFilteringArchitecture() {
 
             <div style={{ display: 'flex', alignItems: 'center', color: '#687078', fontSize: 18, fontWeight: 700 }}>&rarr;</div>
 
-            {/* Stage 2: DQ Validator */}
+            {/* Stage 2: Rule Validator */}
             <div style={{
               border: '2px solid #037f0c',
               borderRadius: 8,
@@ -487,7 +487,7 @@ function SuspectFilteringArchitecture() {
               textAlign: 'center',
               minWidth: 170,
             }}>
-              <div style={{ fontWeight: 700, color: '#037f0c' }}>DQ Validator</div>
+              <div style={{ fontWeight: 700, color: '#037f0c' }}>Rule Validator</div>
               <div style={{ fontSize: 11, color: '#687078', margin: '4px 0' }}>결정론적 전수 스캔</div>
               <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 8 }}>
                 <div>
@@ -637,12 +637,6 @@ function LlmVerificationDetail() {
           </SpaceBetween>
         </Container>
 
-        <Box variant="small" color="text-body-secondary">
-          판정 캐시(Judgment Cache)의 키는 <code>error_type:rule_id:target_columns</code> 조합으로 구성됩니다.
-          동일한 오류 패턴은 캐시에서 재활용되어 LLM 호출 비용을 절감하고 판정 일관성을 유지합니다.
-          캐시는 HIGH 신뢰도 판정만 저장하여 품질을 보장합니다.
-          MEDIUM/LOW 판정은 캐시되지 않으며, 매 실행마다 LLM이 새로 분석합니다.
-        </Box>
       </SpaceBetween>
     </ExpandableSection>
   );
@@ -724,7 +718,6 @@ function TechStackDetail() {
             { category: 'LLM 모델', service: 'Claude Sonnet 4.6 (Bedrock Converse API)', purpose: '모델 ID: global.anthropic.claude-sonnet-4-6. 동적 규칙 생성, PRIMARY 시맨틱 분석에 사용. max_tokens=16,384, batch_size=50.' },
             { category: '데이터 소스', service: 'Amazon DynamoDB', purpose: '택배 물류 원본 데이터 저장. Export to S3 또는 Rate-limited Scan으로 데이터 추출.' },
             { category: '중간 저장소', service: 'Amazon S3', purpose: '스테이징 데이터, 의심 항목(JSONL), 판정 결과, 리포트(Markdown), 스냅샷 저장.' },
-            { category: '판정 캐시', service: 'Amazon DynamoDB', purpose: 'LLM 판정 결과 캐시. pattern_key 기반으로 동일 오류 패턴의 판정을 재활용.' },
             { category: '동적 규칙 캐시', service: 'Amazon S3', purpose: '스키마 fingerprint(SHA-256) 기반으로 LLM 생성 동적 규칙을 캐시. TTL 1시간. 동일 스키마 반복 검증 시 LLM 호출 2회(~40초)를 절감.' },
             { category: '알림', service: 'Slack API', purpose: '검증 결과 요약, 인터랙티브 승인 메시지 발송. Human-in-the-Loop 승인 게이트.' },
             { category: '에이전트 프레임워크', service: 'Strands Agents SDK', purpose: '@tool 데코레이터 기반 도구 정의, GraphBuilder로 DAG 파이프라인 구성.' },
@@ -785,7 +778,9 @@ function UpdateLog() {
         '시스템 프롬프트에 명시적 신뢰도(HIGH/MEDIUM/LOW) 판정 기준을 정의하여 일관된 판정 유도',
         'LOW confidence 판정을 자동 제외하지 않고 모든 결과를 사용자에게 투명하게 제공',
         '사용자가 각 레코드의 신뢰도와 판정 기준을 직접 확인하고 검토 가능',
-        'HIGH confidence 판정만 캐시에 저장하여 품질 유지',
+        '동적 규칙 생성 시 프로파일링 개선: 저카디널리티 컬럼(고유값 ≤50)은 전체 고유값을 LLM에 전달하여 희소 코드 누락 방지',
+        '고카디널리티 컬럼은 Top-5 → Top-20으로 확대, all_values_included 플래그로 LLM이 전체값 여부를 인식',
+        '규칙 생성 프롬프트에 allowed_values 보수적 생성 지시 추가 — 일부값만 제공된 컬럼은 pattern 기반 규칙 우선',
       ],
     },
     {
@@ -906,7 +901,7 @@ export default function AgentIntro() {
                   description="DynamoDB 또는 S3에서 데이터를 추출하고, 검증을 위해 스테이징하며, 파이프라인 상태를 초기화합니다."
                 />
                 <NodeCard
-                  title="2. DQ Validator"
+                  title="2. Rule Validator"
                   type="규칙 기반 검증"
                   description="스키마 추론, 검증 규칙(YAML) 로딩, LLM을 통한 동적 규칙 발견 후 결정론적 전체 스캔 검사(범위, 포맷, 시간순서, 크로스컬럼)를 수행합니다."
                 />
@@ -918,7 +913,7 @@ export default function AgentIntro() {
                 <NodeCard
                   title="4. LLM Analyzer"
                   type="시맨틱 AI 분석"
-                  description="의심 항목에 대해 명시적 신뢰도 기준(HIGH/MEDIUM/LOW)으로 PRIMARY LLM 분석을 수행합니다. 모든 신뢰도의 판정 결과를 사용자에게 투명하게 제공하며, 판정 캐시(HIGH만 저장)로 효율성을 높입니다."
+                  description="의심 항목에 대해 명시적 신뢰도 기준(HIGH/MEDIUM/LOW)으로 PRIMARY LLM 분석을 수행합니다. 모든 신뢰도의 판정 결과를 사용자에게 투명하게 제공합니다."
                 />
                 <NodeCard
                   title="5. Report & Notify"

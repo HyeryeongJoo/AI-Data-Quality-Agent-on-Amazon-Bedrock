@@ -72,7 +72,6 @@ export interface AnalysisStats {
   high_error_count?: number;
   medium_error_count?: number;
   low_error_count?: number;
-  cache_hit_count: number;
   suspect_input_count?: number;
   primary_failed_count?: number;
   failure_reasons?: string[];

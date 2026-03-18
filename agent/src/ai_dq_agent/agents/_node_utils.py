@@ -137,11 +137,10 @@ def log_pipeline_stats(pipeline_id: str, state: dict) -> None:
 
     logger.info(
         "Pipeline stats | pipeline_id=%s total_records=%d suspect_count=%d "
-        "suspect_ratio=%.4f error_count=%d cache_hit_count=%d",
+        "suspect_ratio=%.4f error_count=%d",
         pipeline_id,
         total_records,
         suspect_count,
         suspect_count / max(total_records, 1),
         analysis_stats.get("error_count", 0),
-        analysis_stats.get("cache_hit_count", 0),
     )

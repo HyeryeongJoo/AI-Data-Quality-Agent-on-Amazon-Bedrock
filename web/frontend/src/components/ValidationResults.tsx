@@ -12,6 +12,7 @@ import Pagination from '@cloudscape-design/components/pagination';
 import TextFilter from '@cloudscape-design/components/text-filter';
 import Alert from '@cloudscape-design/components/alert';
 import ExpandableSection from '@cloudscape-design/components/expandable-section';
+import Popover from '@cloudscape-design/components/popover';
 import { useCollection } from '@cloudscape-design/collection-hooks';
 import type { ValidationResult, RecordValidationDetail, Suspect, Judgment, StageResult, DynamicRule, AnomalyStats } from '../types';
 
@@ -40,7 +41,7 @@ const HEALTH_KR: Record<string, string> = {
 
 const STAGE_NAME_KR: Record<string, string> = {
   coordinator: 'Coordinator',
-  rule_validator: 'DQ Validator',
+  rule_validator: 'Rule Validator',
   anomaly_detector: 'Anomaly Detector',
   llm_analyzer: 'LLM Analyzer',
   report_notify: 'Report & Notify',
@@ -73,7 +74,7 @@ function DynamicRulesSection({ result }: Props) {
     <Container header={<Header variant="h2" counter={`(${rules.length}개)`}>동적 생성 규칙</Header>}>
       <SpaceBetween size="xs">
         <Box variant="small" color="text-body-secondary">
-          DQ Validator가 데이터 프로파일링 결과를 기반으로 LLM을 통해 자동 생성한 검증 규칙입니다.
+          Rule Validator가 데이터 프로파일링 결과를 기반으로 LLM을 통해 자동 생성한 검증 규칙입니다.
         </Box>
         <Table
           variant="embedded"
@@ -264,11 +265,11 @@ function SummaryCards({ result }: Props) {
           <Box variant="h1">{result.total_records?.toLocaleString() ?? 0}</Box>
         </div>
         <div>
-          <Box variant="awsui-key-label">LLM 확정 오류 레코드</Box>
+          <Box variant="awsui-key-label">LLM 오류 판정 레코드</Box>
           <Box variant="h1" color="text-status-error">
             {result.violation_count?.toLocaleString() ?? 0}
           </Box>
-          <Box variant="small" color="text-body-secondary">고유 레코드 기준</Box>
+          <Box variant="small" color="text-body-secondary">모든 신뢰도 포함, 고유 레코드 기준</Box>
         </div>
       </ColumnLayout>
 
@@ -276,37 +277,154 @@ function SummaryCards({ result }: Props) {
         const anomaly = result.anomaly_stats;
         const hasAnomaly = anomaly && anomaly.total_added > 0;
         const analysisStats = result.analysis_stats;
-        const highCount = analysisStats?.high_confidence_count ?? 0;
+        const highErrorCount = analysisStats?.high_error_count ?? 0;
+        const mediumErrorCount = analysisStats?.medium_error_count ?? 0;
+        const lowErrorCount = analysisStats?.low_error_count ?? 0;
         const errorCount = analysisStats?.error_count ?? 0;
         const falsePositives = (analysisStats?.total_analyzed ?? 0) - errorCount;
 
-        return (
-          <Box margin={{ top: 'l' }}>
-            <ColumnLayout columns={hasAnomaly ? 5 : 4} variant="text-grid">
-              <div>
-                <Box variant="awsui-key-label">규칙 기반 의심 항목</Box>
-                <Box variant="p">{result.validation_stats.suspect_count}건</Box>
-              </div>
-              {hasAnomaly && (
+        const totalAnalyzed = analysisStats?.total_analyzed ?? 0;
+        const popoverContent = (
+          <Popover
+            header="오탐 제거란?"
+            content={
+              <SpaceBetween size="xs">
+                <Box variant="p">
+                  규칙 기반 검증에서 의심 항목으로 분류되었지만, LLM이 분석한 결과 <strong>실제 오류가 아닌 정상 데이터</strong>로 판정된 건수입니다.
+                </Box>
+                <Box variant="p" fontWeight="bold">예시:</Box>
+                <Box variant="small">
+                  • 중량 0.005kg → 규칙: 범위 초과(out_of_range)로 의심 → LLM: "서류 배송이므로 정상" → <strong>오탐 제거</strong>
+                </Box>
+                <Box variant="small">
+                  • 전화번호 010-123-456 → 규칙: 형식 불일치로 의심 → LLM: "자릿수 부족, 명백한 오류" → <strong>오류 확정</strong>
+                </Box>
+              </SpaceBetween>
+            }
+            triggerType="text"
+            size="large"
+          >
+            <Box variant="awsui-key-label" color="text-status-info" fontSize="body-s">
+              오탐 제거 (정상 판정) <Box variant="small" display="inline" color="text-status-info">ⓘ</Box>
+            </Box>
+          </Popover>
+        );
+
+        return hasAnomaly ? (
+          <SpaceBetween size="l">
+            {/* Row 1: 의심 항목 수집 단계 */}
+            <Box margin={{ top: 'l' }}>
+              <Box variant="small" fontWeight="bold" margin={{ bottom: 'xs' }} color="text-body-secondary">의심 항목 수집</Box>
+              <ColumnLayout columns={3} variant="text-grid">
                 <div>
-                  <Box variant="awsui-key-label">이상치 탐지 추가 의심</Box>
+                  <Box variant="awsui-key-label">규칙 기반 의심 항목</Box>
+                  <Box variant="p">{result.validation_stats.suspect_count}건</Box>
+                </div>
+                <div>
+                  <Box variant="awsui-key-label">
+                    <Popover
+                      header="통계적 vs 맥락적 이상치 탐지"
+                      size="large"
+                      triggerType="text"
+                      content={
+                        <SpaceBetween size="s">
+                          <div>
+                            <Box variant="h4">통계적 (Statistical)</Box>
+                            <Box variant="small">값 하나만 보고 전체 분포에서 극단적인지 판단합니다.</Box>
+                            <Box variant="small" color="text-body-secondary" margin={{ top: 'xxs' }}>
+                              예: 운송비가 50,000원 → 전체 운송비 분포에서 Z-Score 4.2 → 이상치
+                            </Box>
+                            <Box variant="small" color="text-body-secondary">
+                              기법: Z-Score, IQR, Isolation Forest
+                            </Box>
+                          </div>
+                          <div>
+                            <Box variant="h4">맥락적 (Contextual)</Box>
+                            <Box variant="small">값 자체는 정상이지만, 다른 조건과 함께 보면 이상한 데이터를 찾습니다.</Box>
+                            <Box variant="small" color="text-body-secondary" margin={{ top: 'xxs' }}>
+                              예: 운송비 5,000원은 전체에서 정상이지만, "소형 박스" 그룹 내 평균 1,900원 대비 이상치
+                            </Box>
+                            <Box variant="small" color="text-body-secondary">
+                              예: 서울→부산인데 운송비 2,100원 → 거리 대비 운송비 상관관계 이탈
+                            </Box>
+                            <Box variant="small" color="text-body-secondary">
+                              기법: 조건부 이상치, 상관관계 이탈, 희귀 조합
+                            </Box>
+                          </div>
+                          <Box variant="small" fontWeight="bold">
+                            한 줄 요약: "혼자 보면 멀쩡한데, 같이 보면 이상한 것"이 맥락적 이상치입니다.
+                          </Box>
+                        </SpaceBetween>
+                      }
+                    >
+                      이상치 탐지 추가 의심
+                    </Popover>
+                  </Box>
                   <Box variant="p" color="text-status-warning">{anomaly.total_added}건</Box>
                   <Box variant="small" color="text-body-secondary">
                     통계적 {anomaly.statistical_count} + 맥락적 {anomaly.contextual_count}
                   </Box>
+                  {anomaly.methods_used && anomaly.methods_used.length > 0 && (
+                    <Box variant="small" color="text-body-secondary">
+                      탐지 기법: {anomaly.methods_used.join(', ')}
+                    </Box>
+                  )}
                 </div>
-              )}
+                <div>
+                  <Box variant="awsui-key-label">LLM 분석 대상 (합산)</Box>
+                  <Box variant="p">{totalAnalyzed}건</Box>
+                  <Box variant="small" color="text-body-secondary">
+                    규칙 {result.validation_stats.suspect_count} + 이상치 {anomaly.total_added}
+                  </Box>
+                </div>
+              </ColumnLayout>
+            </Box>
+            {/* Row 2: LLM 분석 결과 */}
+            <Box>
+              <Box variant="small" fontWeight="bold" margin={{ bottom: 'xs' }} color="text-body-secondary">LLM 분석 결과</Box>
+              <ColumnLayout columns={3} variant="text-grid">
+                <div>
+                  {popoverContent}
+                  <Box variant="p">{falsePositives}건</Box>
+                </div>
+                <div>
+                  <Box variant="awsui-key-label">LLM 오류 판정 (전체)</Box>
+                  <Box variant="p" color="text-status-error">{errorCount}건</Box>
+                  <Box variant="small" color="text-body-secondary">
+                    HIGH {highErrorCount} · MEDIUM {mediumErrorCount} · LOW {lowErrorCount}
+                  </Box>
+                </div>
+                <div>
+                  <Box variant="awsui-key-label">오탐율</Box>
+                  <Box variant="p">{totalAnalyzed > 0 ? ((falsePositives / totalAnalyzed) * 100).toFixed(0) : 0}%</Box>
+                  <Box variant="small" color="text-body-secondary">
+                    {falsePositives} / {totalAnalyzed}건
+                  </Box>
+                </div>
+              </ColumnLayout>
+            </Box>
+          </SpaceBetween>
+        ) : (
+          <Box margin={{ top: 'l' }}>
+            <ColumnLayout columns={4} variant="text-grid">
               <div>
-                <Box variant="awsui-key-label">HIGH 신뢰도 판정</Box>
-                <Box variant="p">{highCount}건</Box>
+                <Box variant="awsui-key-label">규칙 기반 의심 항목</Box>
+                <Box variant="p">{result.validation_stats.suspect_count}건</Box>
               </div>
               <div>
-                <Box variant="awsui-key-label">LLM 확정 오류</Box>
-                <Box variant="p" color="text-status-error">{errorCount}건</Box>
+                <Box variant="awsui-key-label">LLM 분석 대상</Box>
+                <Box variant="p">{totalAnalyzed}건</Box>
               </div>
               <div>
-                <Box variant="awsui-key-label">오탐 제거 (정상 판정)</Box>
+                {popoverContent}
                 <Box variant="p">{falsePositives}건</Box>
+              </div>
+              <div>
+                <Box variant="awsui-key-label">LLM 오류 판정 (전체)</Box>
+                <Box variant="p" color="text-status-error">{errorCount}건</Box>
+                <Box variant="small" color="text-body-secondary">
+                  HIGH {highErrorCount} · MEDIUM {mediumErrorCount} · LOW {lowErrorCount}
+                </Box>
               </div>
             </ColumnLayout>
           </Box>
@@ -428,7 +546,6 @@ function SummaryCards({ result }: Props) {
             <Box variant="small" color="text-body-secondary">
               모든 신뢰도(HIGH/MEDIUM/LOW)의 판정 결과가 위 상세 테이블에 표시됩니다.
               사용자가 각 레코드의 신뢰도와 판정 근거를 직접 확인하고 적절성을 검토할 수 있습니다.
-              HIGH 신뢰도 판정만 판정 캐시(Judgment Cache)에 저장되어 동일 패턴의 이후 검증에 재활용됩니다.
               건강도 점수 산정 시 HIGH 오류는 가중치 1.0, MEDIUM·LOW 오류는 가중치 0.5로 반영됩니다.
             </Box>
           </SpaceBetween>
@@ -609,9 +726,9 @@ function DetailTable({ result }: Props) {
         header={
           <Header
             variant="h2"
-            description="레코드별 규칙 위반 사항 및 LLM 판정 결과"
+            description="레코드별 규칙 위반 사항 및 LLM 판정 결과 · 보정 추천은 형식 오류(우편번호, 전화번호), 범위 초과(음수 중량) 등 올바른 값을 추론할 수 있는 경우에만 제공됩니다. 통계적 이상치는 이상 여부만 판단하고 올바른 값을 알 수 없어 보정 추천이 제공되지 않습니다."
           >
-            {`레코드별 상세 검증 결과: LLM 확정 오류 ${details.filter(d => d.judgment?.is_error).length}건 / 의심 레코드 ${details.length}건, 총 규칙 위반 ${details.reduce((sum, d) => sum + d.suspects.length, 0)}건`}
+            레코드별 상세 검증 결과
           </Header>
         }
         items={items}
@@ -627,17 +744,26 @@ function DetailTable({ result }: Props) {
             id: 'source',
             header: '검증 유형',
             cell: item => sourceBadge(item.source),
+            sortingField: 'source',
             width: 130,
           },
           {
             id: 'status',
             header: '상태',
-            cell: item => (
-              <StatusIndicator type={item.has_error ? 'error' : 'success'}>
-                {item.has_error ? '오류' : '정상'}
-              </StatusIndicator>
-            ),
-            width: 90,
+            cell: item => {
+              if (!item.judgment) {
+                return <StatusIndicator type="pending">미판정</StatusIndicator>;
+              }
+              if (item.judgment.is_error) {
+                return <StatusIndicator type="error">오류 확정</StatusIndicator>;
+              }
+              return <StatusIndicator type="success">정상 판정 (오탐)</StatusIndicator>;
+            },
+            sortingComparator: (a, b) => {
+              const order = (item: typeof a) => !item.judgment ? 2 : item.judgment.is_error ? 0 : 1;
+              return order(a) - order(b);
+            },
+            width: 130,
           },
           {
             id: 'error_types',
@@ -649,6 +775,11 @@ function DetailTable({ result }: Props) {
                 ))}
               </SpaceBetween>
             ),
+            sortingComparator: (a, b) => {
+              const aType = [...new Set(a.suspects.map(s => s.error_type))].join(',');
+              const bType = [...new Set(b.suspects.map(s => s.error_type))].join(',');
+              return aType.localeCompare(bType);
+            },
             width: 200,
           },
           {
@@ -661,6 +792,12 @@ function DetailTable({ result }: Props) {
                   {severities.map(s => <span key={s}>{severityBadge(s)}</span>)}
                 </SpaceBetween>
               );
+            },
+            sortingComparator: (a, b) => {
+              const order: Record<string, number> = { critical: 0, warning: 1, info: 2 };
+              const aMax = Math.min(...a.suspects.map(s => order[s.severity] ?? 3));
+              const bMax = Math.min(...b.suspects.map(s => order[s.severity] ?? 3));
+              return aMax - bMax;
             },
             width: 120,
           },
@@ -681,12 +818,17 @@ function DetailTable({ result }: Props) {
                 </SpaceBetween>
               </ExpandableSection>
             ),
+            sortingComparator: (a, b) => a.suspects.length - b.suspects.length,
             width: 300,
           },
           {
             id: 'confidence',
             header: 'LLM 신뢰도',
             cell: item => item.judgment ? confidenceBadge(item.confidence) : <Box color="text-status-inactive">-</Box>,
+            sortingComparator: (a, b) => {
+              const order: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2, 'N/A': 3 };
+              return (order[a.confidence] ?? 3) - (order[b.confidence] ?? 3);
+            },
             width: 120,
           },
           {
@@ -697,6 +839,11 @@ function DetailTable({ result }: Props) {
                 {item.judgment?.evidence || item.judgment?.reasoning || '-'}
               </Box>
             ),
+            sortingComparator: (a, b) => {
+              const aText = a.judgment?.evidence || a.judgment?.reasoning || '';
+              const bText = b.judgment?.evidence || b.judgment?.reasoning || '';
+              return aText.localeCompare(bText);
+            },
             width: 250,
           },
           {
@@ -729,6 +876,11 @@ function DetailTable({ result }: Props) {
                   </SpaceBetween>
                 </ExpandableSection>
               );
+            },
+            sortingComparator: (a, b) => {
+              const aCount = a.suggested_correction ? Object.keys(a.suggested_correction).length : 0;
+              const bCount = b.suggested_correction ? Object.keys(b.suggested_correction).length : 0;
+              return aCount - bCount;
             },
             width: 220,
           },

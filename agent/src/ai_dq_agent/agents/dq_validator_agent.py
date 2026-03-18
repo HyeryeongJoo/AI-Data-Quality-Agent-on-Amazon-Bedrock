@@ -314,17 +314,25 @@ def _run_full_profiling(
             break
 
     # Build column stats summary
+    # For low-cardinality columns (unique_count <= 50), send ALL unique values
+    # so LLM can generate accurate allowed_values rules without missing rare but valid codes.
     column_stats = {}
     for col, counter in column_counters.items():
         total_non_null = sum(counter.values())
         total_col = total_non_null + column_null_counts.get(col, 0)
         null_rate = column_null_counts.get(col, 0) / total_col if total_col > 0 else 0
+        unique_count = len(counter)
+        if unique_count <= 50:
+            top_values = [{"value": str(v), "count": c} for v, c in counter.most_common()]
+        else:
+            top_values = [{"value": str(v), "count": c} for v, c in counter.most_common(20)]
         column_stats[col] = {
             "total_count": total_col,
             "null_count": column_null_counts.get(col, 0),
             "null_rate": round(null_rate, 6),
-            "unique_count": len(counter),
-            "top_values": [{"value": str(v), "count": c} for v, c in counter.most_common(5)],
+            "unique_count": unique_count,
+            "top_values": top_values,
+            "all_values_included": unique_count <= 50,
         }
 
     logger.info(

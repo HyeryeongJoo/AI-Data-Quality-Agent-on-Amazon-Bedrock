@@ -30,7 +30,13 @@ RULE_GENERATE_SYSTEM_PROMPT = (
     '    "enabled": true\n'
     "  }\n"
     "]\n\n"
-    "반드시 JSON array만 반환하세요. 기존 규칙과 중복되지 않도록 주의하세요."
+    "주의사항:\n"
+    "- 반드시 JSON array만 반환하세요. 기존 규칙과 중복되지 않도록 주의하세요.\n"
+    "- allowed_values 규칙 생성 시: 'all_values_included: true'인 컬럼은 "
+    "제공된 값이 해당 컬럼의 전체 고유값이므로 이를 그대로 allowed_values로 사용하세요.\n"
+    "- 'all_values_included: false'인 컬럼은 상위 빈도값만 제공된 것이므로, "
+    "프로파일에 나타나지 않은 유효한 값이 존재할 수 있습니다. "
+    "이 경우 allowed_values 규칙 대신 format/pattern 기반 규칙을 우선 고려하세요."
 )
 
 

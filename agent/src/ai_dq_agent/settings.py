@@ -24,7 +24,6 @@ class Settings(BaseSettings):
     dynamodb_table_name: str = "delivery-data-dev"
     dynamodb_state_table: str = "dq-agent-state-dev"
     dynamodb_correction_table: str = "dq-agent-corrections-dev"
-    dynamodb_cache_table: str = "dq-agent-cache-dev"
     dynamodb_quarantine_table: str = "dq-agent-quarantine-dev"
 
     # S3 Buckets
