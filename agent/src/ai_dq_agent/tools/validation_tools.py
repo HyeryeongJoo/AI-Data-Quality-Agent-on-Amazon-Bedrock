@@ -11,6 +11,17 @@ from strands import tool
 logger = logging.getLogger(__name__)
 
 
+def _extract_record_id(record: dict, primary_key: list[str]) -> str:
+    """Extract record ID from primary key columns.
+
+    For single-column PK, returns the raw value as string.
+    For composite PK, joins values with '|'.
+    """
+    if len(primary_key) == 1:
+        return str(record.get(primary_key[0], ""))
+    return "|".join(str(record.get(k, "")) for k in primary_key)
+
+
 # ---------------------------------------------------------------------------
 # Compiled regex cache (DP-04)
 # ---------------------------------------------------------------------------
@@ -60,9 +71,8 @@ def regex_validate(
         value = record.get(column_name)
         if value is None:
             if not nullable:
-                pk_vals = {k: record.get(k) for k in primary_key}
                 violations.append({
-                    "record_id": str(pk_vals),
+                    "record_id": _extract_record_id(record, primary_key),
                     "column": column_name,
                     "actual_value": "null",
                     "expected_condition": f"pattern:{pattern}",
@@ -71,9 +81,8 @@ def regex_validate(
 
         checked += 1
         if not compiled.fullmatch(str(value)):
-            pk_vals = {k: record.get(k) for k in primary_key}
             violations.append({
-                "record_id": str(pk_vals),
+                "record_id": _extract_record_id(record, primary_key),
                 "column": column_name,
                 "actual_value": str(value),
                 "expected_condition": f"pattern:{pattern}",
@@ -129,9 +138,8 @@ def range_check(
         value = record.get(column_name)
         if value is None:
             if not nullable:
-                pk_vals = {k: record.get(k) for k in primary_key}
                 violations.append({
-                    "record_id": str(pk_vals),
+                    "record_id": _extract_record_id(record, primary_key),
                     "column": column_name,
                     "actual_value": "null",
                     "expected_condition": _range_condition(allowed_values, min_value, max_value),
@@ -157,9 +165,8 @@ def range_check(
                 violated = True
 
         if violated:
-            pk_vals = {k: record.get(k) for k in primary_key}
             violations.append({
-                "record_id": str(pk_vals),
+                "record_id": _extract_record_id(record, primary_key),
                 "column": column_name,
                 "actual_value": str(value),
                 "expected_condition": _range_condition(allowed_values, min_value, max_value),
@@ -233,8 +240,7 @@ def timestamp_compare(
         if earlier_str is None or later_str is None:
             continue
 
-        pk_vals = {k: record.get(k) for k in primary_key}
-        record_id = str(pk_vals)
+        record_id = _extract_record_id(record, primary_key)
 
         earlier_dt = _try_parse(str(earlier_str), time_formats)
         if earlier_dt is None:
