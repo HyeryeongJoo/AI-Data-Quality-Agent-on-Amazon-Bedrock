@@ -96,22 +96,25 @@ def invoke_report_notify(state: dict) -> dict:
     total_scanned = validation_stats.get("total_scanned", state.get("total_records", 0))
     total_suspects = validation_stats.get("suspect_count", state.get("suspect_count", 0))
     total_errors = analysis_stats.get("error_count", 0)
-    high_confidence = analysis_stats.get("high_confidence_count", 0)
+    high_error_count = analysis_stats.get("high_error_count", 0)
     error_type_dist = validation_stats.get("stats_by_error_type", {})
 
-    # Build severity stats from confirmed errors (not raw suspects)
-    # HIGH confidence confirmed errors → critical, MEDIUM/LOW → warning
+    # Build severity stats from confirmed errors only (is_error=true)
+    # Fallback to *_confidence_count for backward compat with older pipeline runs
     confirmed_severity = {
-        "critical": analysis_stats.get("high_confidence_count", 0),
-        "warning": analysis_stats.get("medium_confidence_count", 0)
-                   + analysis_stats.get("low_confidence_count", 0),
+        "critical": analysis_stats.get("high_error_count",
+                    analysis_stats.get("high_confidence_count", 0)),
+        "warning": analysis_stats.get("medium_error_count",
+                   analysis_stats.get("medium_confidence_count", 0))
+                   + analysis_stats.get("low_error_count",
+                     analysis_stats.get("low_confidence_count", 0)),
     }
 
     # Compute health score based on confirmed errors
     health = _compute_health_score(
         total_scanned=total_scanned,
         total_errors=total_errors,
-        high_confidence=high_confidence,
+        high_confidence=high_error_count,
         stats_by_severity=confirmed_severity,
     )
     health["table_name"] = settings.dynamodb_table_name
@@ -126,8 +129,8 @@ def invoke_report_notify(state: dict) -> dict:
         total_scanned=total_scanned,
         total_suspects=total_suspects,
         total_errors=total_errors,
-        high_confidence_errors=high_confidence,
-        correction_proposals=high_confidence,
+        high_confidence_errors=high_error_count,
+        correction_proposals=high_error_count,
         error_type_distribution=error_type_dist,
         s3_bucket=settings.s3_staging_bucket,
         s3_prefix=f"reports/{pipeline_id}",
@@ -178,7 +181,7 @@ def invoke_report_notify(state: dict) -> dict:
             f"Health: [{health_indicator}] {health['health_score']:.0%}\n"
             f"- 전체 검증: {total_scanned:,}건\n"
             f"- 의심 항목: {total_suspects:,}건\n"
-            f"- 오류 확정: {total_errors}건 (HIGH: {high_confidence}건)\n"
+            f"- 오류 확정: {total_errors}건 (HIGH: {high_error_count}건)\n"
             f"- 리포트: {report_s3_path}\n\n"
             f"보정 승인이 필요합니다."
         )

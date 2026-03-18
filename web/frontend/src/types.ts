@@ -38,8 +38,6 @@ export interface Judgment {
   evidence?: string;
   reasoning?: string;
   suggested_correction?: Record<string, string | number | null> | null;
-  reflection_match?: boolean;
-  reflection_note?: string;
 }
 
 export interface DynamicRule {
@@ -71,11 +69,12 @@ export interface AnalysisStats {
   high_confidence_count: number;
   medium_confidence_count: number;
   low_confidence_count: number;
-  reflection_mismatch_count: number;
+  high_error_count?: number;
+  medium_error_count?: number;
+  low_error_count?: number;
   cache_hit_count: number;
   suspect_input_count?: number;
   primary_failed_count?: number;
-  reflection_failed_count?: number;
   failure_reasons?: string[];
   input_tokens?: number;
   output_tokens?: number;

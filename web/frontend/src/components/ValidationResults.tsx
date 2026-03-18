@@ -284,8 +284,8 @@ function SummaryCards({ result }: Props) {
               <Box variant="p">{result.analysis_stats?.error_count ?? 0}건</Box>
             </div>
             <div>
-              <Box variant="awsui-key-label">HIGH 신뢰도</Box>
-              <Box variant="p">{result.analysis_stats?.high_confidence_count ?? 0}건</Box>
+              <Box variant="awsui-key-label">오탐 제거 (정상 판정)</Box>
+              <Box variant="p">{(result.analysis_stats?.total_analyzed ?? 0) - (result.analysis_stats?.error_count ?? 0)}건</Box>
             </div>
           </ColumnLayout>
         </Box>
@@ -339,18 +339,22 @@ function SummaryCards({ result }: Props) {
             </Box>
             {(() => {
               const total = result.total_records ?? 0;
-              const high = result.analysis_stats?.high_confidence_count ?? 0;
-              const medLow = (result.analysis_stats?.medium_confidence_count ?? 0)
-                + (result.analysis_stats?.low_confidence_count ?? 0);
-              const weighted = high * 1.0 + medLow * 0.5;
+              // Count errors by confidence (is_error=true only)
+              // Prefer backend-computed stats; fallback to counting from judgments
+              const stats = result.analysis_stats;
+              const judgments = result.judgments ?? [];
+              const highErrors = stats?.high_error_count ?? judgments.filter(j => j.is_error && j.confidence === 'HIGH').length;
+              const medLowErrors = (stats?.medium_error_count ?? judgments.filter(j => j.is_error && j.confidence === 'MEDIUM').length)
+                + (stats?.low_error_count ?? judgments.filter(j => j.is_error && j.confidence === 'LOW').length);
+              const weighted = highErrors * 1.0 + medLowErrors * 0.5;
               const rate = total > 0 ? weighted / total : 0;
               return (
                 <Table
                   variant="embedded"
                   items={[
-                    { factor: 'HIGH 신뢰도 확정 오류', weight: '× 1.0', count: high, contribution: high * 1.0 },
-                    { factor: 'MEDIUM + LOW 신뢰도 오류', weight: '× 0.5', count: medLow, contribution: medLow * 0.5 },
-                    { factor: '가중 오류 합계', weight: '', count: high + medLow, contribution: weighted },
+                    { factor: 'HIGH 신뢰도 확정 오류', weight: '× 1.0', count: highErrors, contribution: highErrors * 1.0 },
+                    { factor: 'MEDIUM + LOW 신뢰도 오류', weight: '× 0.5', count: medLowErrors, contribution: medLowErrors * 0.5 },
+                    { factor: '가중 오류 합계', weight: '', count: highErrors + medLowErrors, contribution: weighted },
                   ]}
                   columnDefinitions={[
                     { id: 'factor', header: '항목', cell: item => <Box fontWeight="bold">{item.factor}</Box>, width: 220 },
@@ -378,52 +382,32 @@ function SummaryCards({ result }: Props) {
         <ExpandableSection headerText="신뢰도(HIGH / MEDIUM / LOW) 판정 기준" variant="footer">
           <SpaceBetween size="s">
             <Box variant="p">
-              신뢰도는 LLM Analyzer의 <strong>2단계 검증</strong>(PRIMARY + REFLECTION)을 통해 결정됩니다.
+              신뢰도는 LLM Analyzer의 PRIMARY 분석에서 <strong>명시적 판정 기준</strong>에 따라 결정됩니다.
+              시스템 프롬프트에 아래 기준이 정의되어 있어, LLM이 일관된 기준으로 판정합니다.
             </Box>
 
-            <Box variant="h4">1단계: PRIMARY 분석</Box>
-            <Box variant="p">
-              규칙 기반 검증에서 의심 항목으로 분류된 레코드를 LLM(Claude Sonnet)이 분석하여
-              실제 오류 여부(<code>is_error</code>)와 함께 신뢰도를 판정합니다.
-            </Box>
             <Table
               variant="embedded"
               items={[
-                { level: 'HIGH', criteria: '데이터가 명확하게 규칙을 위반하며, 오류라는 증거가 뚜렷한 경우', example: '우편번호가 5자리가 아닌 3자리 / 배송완료 시간이 접수 시간보다 이전' },
-                { level: 'MEDIUM', criteria: '위반 가능성이 있으나 일부 모호한 요소가 있는 경우', example: '주소 형식이 비표준이지만 유효할 수 있는 경우 / 값이 범위 경계에 근접' },
-                { level: 'LOW', criteria: 'LLM이 오류 여부를 확신하기 어려운 경우', example: '데이터 패턴이 비정상적이나 비즈니스 예외일 수 있는 경우' },
+                { level: 'HIGH', criteria: '데이터만으로 오류 여부를 확실히 판단할 수 있는 경우', example: '형식 오류(우편번호 자릿수, 전화번호 패턴), 명백한 범위 초과(음수 중량, 미래 날짜), 논리적 모순(배송완료 시간 < 접수 시간)' },
+                { level: 'MEDIUM', criteria: '오류 가능성이 높지만 비즈니스 예외가 존재할 수 있는 경우', example: '범위 경계값(최소/최대에 근접), 비표준이지만 유효할 수 있는 형식, 도메인 지식이 필요한 크로스컬럼 불일치' },
+                { level: 'LOW', criteria: '오류인지 확신할 수 없는 경우', example: '통계적으로 드문 값이지만 정상 범위일 수 있는 경우, 비즈니스 컨텍스트에 따라 정상/오류가 달라지는 경우' },
               ]}
               columnDefinitions={[
                 { id: 'level', header: '신뢰도', cell: item => {
                   const color = item.level === 'HIGH' ? 'red' : item.level === 'MEDIUM' ? 'blue' : 'grey';
                   return <Badge color={color}>{item.level}</Badge>;
                 }, width: 100 },
-                { id: 'criteria', header: '판정 기준', cell: item => item.criteria, width: 350 },
-                { id: 'example', header: '예시', cell: item => <Box variant="small">{item.example}</Box>, width: 350 },
-              ]}
-            />
-
-            <Box variant="h4">2단계: REFLECTION 검증 (자기 검증)</Box>
-            <Box variant="p">
-              PRIMARY 판정 결과를 별도의 LLM 호출로 재검토합니다.
-              REFLECTION은 1차 판정의 <code>is_error</code> 결론에 동의하는지 독립적으로 판단합니다.
-            </Box>
-            <Table
-              variant="embedded"
-              items={[
-                { scenario: 'PRIMARY와 REFLECTION이 일치', action: 'PRIMARY의 신뢰도가 그대로 유지됩니다.', result: 'HIGH → HIGH, MEDIUM → MEDIUM' },
-                { scenario: 'PRIMARY와 REFLECTION이 불일치', action: 'is_error 판단이 서로 다르면 신뢰도가 LOW로 강제 하향됩니다.', result: 'HIGH/MEDIUM → LOW (reflection_match: false)' },
-              ]}
-              columnDefinitions={[
-                { id: 'scenario', header: '시나리오', cell: item => <Box fontWeight="bold">{item.scenario}</Box>, width: 250 },
-                { id: 'action', header: '처리', cell: item => item.action, width: 350 },
-                { id: 'result', header: '신뢰도 변화', cell: item => <Box variant="small">{item.result}</Box>, width: 250 },
+                { id: 'criteria', header: '판정 기준', cell: item => <Box fontWeight="bold">{item.criteria}</Box>, width: 300 },
+                { id: 'example', header: '해당 사례', cell: item => <Box variant="small">{item.example}</Box>, width: 400 },
               ]}
             />
 
             <Box variant="small" color="text-body-secondary">
+              모든 신뢰도(HIGH/MEDIUM/LOW)의 판정 결과가 위 상세 테이블에 표시됩니다.
+              사용자가 각 레코드의 신뢰도와 판정 근거를 직접 확인하고 적절성을 검토할 수 있습니다.
               HIGH 신뢰도 판정만 판정 캐시(Judgment Cache)에 저장되어 동일 패턴의 이후 검증에 재활용됩니다.
-              건강도 점수 산정 시 HIGH 오류는 가중치 1.0, MEDIUM/LOW 오류는 가중치 0.5로 반영됩니다.
+              건강도 점수 산정 시 HIGH 오류는 가중치 1.0, MEDIUM·LOW 오류는 가중치 0.5로 반영됩니다.
             </Box>
           </SpaceBetween>
         </ExpandableSection>
@@ -554,9 +538,8 @@ function DetailTable({ result }: Props) {
         const stats = result.analysis_stats;
         const suspectInput = stats?.suspect_input_count ?? 0;
         const primaryFailed = stats?.primary_failed_count ?? 0;
-        const reflectionFailed = stats?.reflection_failed_count ?? 0;
         const reasons = stats?.failure_reasons ?? [];
-        const hasFailed = primaryFailed > 0 || reflectionFailed > 0;
+        const hasFailed = primaryFailed > 0;
 
         // Determine cause description
         let causeText: string;
@@ -586,7 +569,7 @@ function DetailTable({ result }: Props) {
               </Box>
               {hasFailed && (
                 <Box variant="p">
-                  <strong>실패 내역:</strong> PRIMARY 분석 실패 {primaryFailed}건, REFLECTION 분석 실패 {reflectionFailed}건
+                  <strong>실패 내역:</strong> PRIMARY 분석 실패 {primaryFailed}건
                 </Box>
               )}
               <Box variant="p"><strong>원인:</strong> {causeText}</Box>

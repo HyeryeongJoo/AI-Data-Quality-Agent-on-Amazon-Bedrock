@@ -1,7 +1,7 @@
-"""LLM Analyzer — PRIMARY + REFLECTION semantic analysis with judgment cache.
+"""LLM Analyzer — PRIMARY semantic analysis with judgment cache.
 
 Simplified from dq_semantic_agent.py:
-- Keeps PRIMARY analysis + REFLECTION self-verification (per spec)
+- PRIMARY analysis with explicit confidence criteria (REFLECTION removed for speed)
 - Keeps judgment cache for consistency and cost savings
 - Removed: DEEP_ANALYSIS, impact scoring, lineage, root cause tracing
 - Removed: Strands Agent (no ReAct loop — deterministic orchestration)
@@ -36,19 +36,19 @@ PRIMARY_SYSTEM_PROMPT = (
     '{"컬럼명": 보정값} 형태로 제안하세요.\n'
     '  예시: {"phone": "010-1234-5678"}, {"weight_kg": 2.5}, {"zipcode": "06134"}\n'
     "  보정값을 확신할 수 없으면 null로 반환하세요.\n\n"
+    "confidence 판정 기준:\n"
+    "- HIGH: 데이터만으로 오류 여부를 확실히 판단할 수 있는 경우. "
+    "형식 오류(우편번호 자릿수, 전화번호 패턴), 명백한 범위 초과(음수 중량, 미래 날짜), "
+    "논리적 모순(배송완료 시간 < 접수 시간)이 해당합니다.\n"
+    "- MEDIUM: 오류 가능성이 높지만 비즈니스 예외가 존재할 수 있는 경우. "
+    "범위 경계값(최소/최대에 근접), 비표준이지만 유효할 수 있는 형식, "
+    "도메인 지식이 필요한 크로스컬럼 불일치가 해당합니다.\n"
+    "- LOW: 오류인지 확신할 수 없는 경우. "
+    "통계적으로 드문 값이지만 정상 범위일 수 있는 경우, "
+    "비즈니스 컨텍스트에 따라 정상/오류가 달라지는 경우가 해당합니다.\n\n"
     "반드시 JSON array만 반환하세요."
 )
 
-REFLECTION_SYSTEM_PROMPT = (
-    "당신은 데이터 품질 판정 검토자입니다. "
-    "이전 1차 판정 결과를 재검토하여 동의 여부를 판단합니다.\n\n"
-    "각 항목에 대해 다음 필드를 포함하는 JSON array를 반환하세요:\n"
-    "- record_id: 레코드 식별자\n"
-    "- is_error: 재검토 후 오류 여부 (true/false)\n"
-    "- confidence: 재검토 신뢰도 (HIGH/MEDIUM/LOW)\n"
-    "- evidence: 재검토 근거\n\n"
-    "반드시 JSON array만 반환하세요."
-)
 
 
 def _build_cache_key(suspect: dict) -> str:
@@ -58,14 +58,13 @@ def _build_cache_key(suspect: dict) -> str:
 
 @node_wrapper("llm_analyzer")
 def invoke_llm_analyzer(state: dict) -> dict:
-    """Run PRIMARY + REFLECTION LLM analysis with judgment cache.
+    """Run PRIMARY LLM analysis with judgment cache.
 
     Flow:
     1. Load suspects from S3
     2. Cache lookup — skip already-judged patterns
     3. PRIMARY LLM analysis on uncached suspects
-    4. REFLECTION self-verification
-    5. Merge results, write cache, save to S3
+    4. Merge results, write cache, save to S3
     """
     validate_state_keys(state, ["suspects_s3_path", "suspect_count"])
     result = {**state}
@@ -124,35 +123,6 @@ def invoke_llm_analyzer(state: dict) -> dict:
         total_input_tokens += primary_resp.get("input_tokens", 0)
         total_output_tokens += primary_resp.get("output_tokens", 0)
 
-    # --- REFLECTION self-verification ---
-    reflection_mismatch_count = 0
-    reflection_failures = []
-    if uncached_suspects:
-        reflection_resp = llm_batch_analyze(
-            items=uncached_suspects,
-            analysis_type="REFLECTION",
-            system_prompt=REFLECTION_SYSTEM_PROMPT,
-            batch_size=settings.llm_batch_size,
-        )
-        reflection_judgments = reflection_resp.get("results", [])
-        reflection_failures = reflection_resp.get("failures", [])
-        total_input_tokens += reflection_resp.get("input_tokens", 0)
-        total_output_tokens += reflection_resp.get("output_tokens", 0)
-        reflection_map = {j.get("record_id"): j for j in reflection_judgments}
-
-        for j in primary_judgments:
-            rid = j.get("record_id")
-            ref = reflection_map.get(rid)
-            if ref and ref.get("is_error") != j.get("is_error"):
-                # Mismatch: downgrade confidence to LOW, use reflection result
-                j["confidence"] = "LOW"
-                j["reflection_match"] = False
-                j["reflection_note"] = "Primary/Reflection mismatch"
-                reflection_mismatch_count += 1
-            else:
-                j["reflection_match"] = True
-                j["reflection_note"] = ""
-
     # --- Cache write (HIGH confidence only) ---
     cache_entries = []
     for j in primary_judgments:
@@ -179,6 +149,11 @@ def invoke_llm_analyzer(state: dict) -> dict:
     medium_count = sum(1 for j in all_judgments if j.get("confidence") == "MEDIUM")
     low_count = sum(1 for j in all_judgments if j.get("confidence") == "LOW")
 
+    # Error-only counts by confidence (for health score calculation)
+    high_error_count = sum(1 for j in all_judgments if j.get("is_error") and j.get("confidence") == "HIGH")
+    medium_error_count = sum(1 for j in all_judgments if j.get("is_error") and j.get("confidence") == "MEDIUM")
+    low_error_count = sum(1 for j in all_judgments if j.get("is_error") and j.get("confidence") == "LOW")
+
     # Write judgments to S3
     judgments_s3_path = f"{state['s3_staging_prefix']}judgments.jsonl"
     if all_judgments:
@@ -190,7 +165,7 @@ def invoke_llm_analyzer(state: dict) -> dict:
 
     # Collect unique failure reasons
     all_failure_reasons = list({
-        f.get("error", "unknown") for f in primary_failures + reflection_failures if f.get("error")
+        f.get("error", "unknown") for f in primary_failures if f.get("error")
     })
 
     result["judgments_s3_path"] = judgments_s3_path
@@ -202,11 +177,12 @@ def invoke_llm_analyzer(state: dict) -> dict:
         "high_confidence_count": high_count,
         "medium_confidence_count": medium_count,
         "low_confidence_count": low_count,
-        "reflection_mismatch_count": reflection_mismatch_count,
+        "high_error_count": high_error_count,
+        "medium_error_count": medium_error_count,
+        "low_error_count": low_error_count,
         "cache_hit_count": cache_hit_count,
         "suspect_input_count": len(suspects),
         "primary_failed_count": len(primary_failures),
-        "reflection_failed_count": len(reflection_failures),
         "failure_reasons": all_failure_reasons,
         "input_tokens": total_input_tokens + state.get("rv_input_tokens", 0),
         "output_tokens": total_output_tokens + state.get("rv_output_tokens", 0),
