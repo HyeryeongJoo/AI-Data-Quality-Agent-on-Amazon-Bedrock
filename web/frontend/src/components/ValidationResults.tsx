@@ -41,13 +41,14 @@ const HEALTH_KR: Record<string, string> = {
 const STAGE_NAME_KR: Record<string, string> = {
   coordinator: 'Coordinator',
   rule_validator: 'DQ Validator',
+  anomaly_detector: 'Anomaly Detector',
   llm_analyzer: 'LLM Analyzer',
   report_notify: 'Report & Notify',
   correction: 'Correction',
 };
 
 // Stages that belong to validation (excluding correction)
-const VALIDATION_STAGES = ['coordinator', 'rule_validator', 'llm_analyzer', 'report_notify'];
+const VALIDATION_STAGES = ['coordinator', 'rule_validator', 'anomaly_detector', 'llm_analyzer', 'report_notify'];
 
 function formatDuration(seconds: number): string {
   if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`;
