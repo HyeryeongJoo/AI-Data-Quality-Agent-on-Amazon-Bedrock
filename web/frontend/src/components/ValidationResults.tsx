@@ -283,6 +283,9 @@ function SummaryCards({ result }: Props) {
         const errorCount = analysisStats?.error_count ?? 0;
         const falsePositives = (analysisStats?.total_analyzed ?? 0) - errorCount;
 
+        // Unique record count for rule-based suspects
+        const uniqueSuspectCount = new Set((result.suspects ?? []).map(s => String(s.record_id))).size;
+
         const totalAnalyzed = analysisStats?.total_analyzed ?? 0;
         const popoverContent = (
           <Popover
@@ -318,7 +321,8 @@ function SummaryCards({ result }: Props) {
               <ColumnLayout columns={3} variant="text-grid">
                 <div>
                   <Box variant="awsui-key-label">규칙 기반 의심 항목</Box>
-                  <Box variant="p">{result.validation_stats.suspect_count}건</Box>
+                  <Box variant="p">{uniqueSuspectCount}건</Box>
+                  <Box variant="small" color="text-body-secondary">고유 레코드 기준</Box>
                 </div>
                 <div>
                   <Box variant="awsui-key-label">
@@ -374,7 +378,7 @@ function SummaryCards({ result }: Props) {
                   <Box variant="awsui-key-label">LLM 분석 대상 (합산)</Box>
                   <Box variant="p">{totalAnalyzed}건</Box>
                   <Box variant="small" color="text-body-secondary">
-                    규칙 {result.validation_stats.suspect_count} + 이상치 {anomaly.total_added}
+                    규칙 {uniqueSuspectCount} + 이상치 {anomaly.total_added}
                   </Box>
                 </div>
               </ColumnLayout>
@@ -409,7 +413,8 @@ function SummaryCards({ result }: Props) {
             <ColumnLayout columns={4} variant="text-grid">
               <div>
                 <Box variant="awsui-key-label">규칙 기반 의심 항목</Box>
-                <Box variant="p">{result.validation_stats.suspect_count}건</Box>
+                <Box variant="p">{uniqueSuspectCount}건</Box>
+                <Box variant="small" color="text-body-secondary">고유 레코드 기준</Box>
               </div>
               <div>
                 <Box variant="awsui-key-label">LLM 분석 대상</Box>
@@ -618,7 +623,10 @@ function DetailTable({ result }: Props) {
     for (const j of judgments) {
       const rid = cleanRecordId(String(j.record_id));
       if (!byRecord.has(rid)) byRecord.set(rid, { suspects: [], judgment: null });
-      byRecord.get(rid)!.judgment = j;
+      // First-wins: keep the first judgment per record_id (matches backend dedup logic)
+      if (!byRecord.get(rid)!.judgment) {
+        byRecord.get(rid)!.judgment = j;
+      }
     }
 
     return Array.from(byRecord.entries()).map(([rid, data]) => {
