@@ -662,9 +662,7 @@ function DetailTable({ result }: Props) {
       },
     },
     pagination: { pageSize: 15 },
-    sorting: {
-      defaultState: { sortingColumn: { sortingField: 'record_id' } },
-    },
+    sorting: {},
   });
 
   const severityBadge = (sev: string) => {
@@ -745,14 +743,22 @@ function DetailTable({ result }: Props) {
             id: 'record_id',
             header: '레코드 ID',
             cell: item => <Box fontWeight="bold">{item.record_id}</Box>,
-            sortingField: 'record_id',
+            sortingComparator: (a, b) => {
+              const aNum = Number(a.record_id);
+              const bNum = Number(b.record_id);
+              if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+              return a.record_id.localeCompare(b.record_id);
+            },
             width: 130,
           },
           {
             id: 'source',
             header: '검증 유형',
             cell: item => sourceBadge(item.source),
-            sortingField: 'source',
+            sortingComparator: (a, b) => {
+              const order: Record<string, number> = { both: 0, rule: 1, llm: 2 };
+              return (order[a.source] ?? 3) - (order[b.source] ?? 3);
+            },
             width: 130,
           },
           {
@@ -803,8 +809,10 @@ function DetailTable({ result }: Props) {
             },
             sortingComparator: (a, b) => {
               const order: Record<string, number> = { critical: 0, warning: 1, info: 2 };
-              const aMax = Math.min(...a.suspects.map(s => order[s.severity] ?? 3));
-              const bMax = Math.min(...b.suspects.map(s => order[s.severity] ?? 3));
+              const aVals = a.suspects.map(s => order[s.severity] ?? 3);
+              const bVals = b.suspects.map(s => order[s.severity] ?? 3);
+              const aMax = aVals.length > 0 ? Math.min(...aVals) : 4;
+              const bMax = bVals.length > 0 ? Math.min(...bVals) : 4;
               return aMax - bMax;
             },
             width: 120,
