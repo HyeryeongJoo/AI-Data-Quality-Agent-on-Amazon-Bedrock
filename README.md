@@ -40,17 +40,21 @@ Coordinator → Rule Validator → Anomaly Detector → LLM Analyzer → Report 
 
 ## Screenshots
 
-### Data Validation — Sample Data Table
+### Sample Data Table
 ![Sample Data](img/sample_data.png)
-Load sample delivery data from S3 or upload your own CSV file to prepare data for validation.
+Load sample delivery data from S3 or upload your own CSV file. Supports the extended pipeline (v2) with anomaly detection method selection (Z-Score, IQR, Isolation Forest, conditional, correlation, rare combination).
 
-### Validation Results — Summary & Dynamic Rules
-![Validation Results Summary](img/result_1.png)
-Health score, pipeline flow metrics, false positive removal with Popover explanations, and auto-generated dynamic rules.
+### Validation Results — Summary
+![Validation Results Summary](img/result_summary.png)
+Health score (81%), pipeline flow metrics (규칙 기반 의심 → 이상치 탐지 추가 → LLM 분석 대상 → 오탐 제거 → LLM 오류 판정), false positive rate, and LLM token usage with cost estimate.
 
-### Validation Results — Pipeline Stages & Per-Record Details
-![Validation Results Detail](img/result_2.png)
-Stage-by-stage execution timeline, 3-state status (오류 확정 / 정상 판정 / 미판정), sortable columns, and correction suggestions.
+### Validation Results — Per-Record Details
+![Validation Results Detail](img/result_details.png)
+Per-record 3-state status (오류 확정 / 정상 판정 / 미판정), all columns sortable, violation details with rule IDs, LLM confidence levels, and correction suggestions.
+
+### Dynamic Rules (Auto-generated)
+![Dynamic Rules](img/auto_rules.png)
+LLM-generated validation rules (AUTO-001 ~ AUTO-014) based on data profiling. Rules cover allowed value checks, format validation, cross-column consistency, and temporal constraints.
 
 ## Quick Start
 
