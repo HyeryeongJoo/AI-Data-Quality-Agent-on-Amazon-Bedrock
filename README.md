@@ -4,25 +4,39 @@ AI-powered Data Quality validation agent built with [Strands Agents SDK](https:/
 
 ## Architecture
 
+Two pipeline versions are available:
+
+**v1 — 기본 검증 (규칙 + LLM)** — 5-node pipeline:
 ```
-coordinator → profiler → schema_analyzer → rule_validator
-                                                ↓
-              correction ← report_notify ← semantic_analyzer
+Coordinator → Rule Validator → LLM Analyzer → Report & Notify → Correction
 ```
 
-**7-node agent pipeline** with conditional routing:
+**v2 — 확장 검증 (규칙 + 이상치 + LLM)** — 6-node pipeline:
+```
+Coordinator → Rule Validator → Anomaly Detector → LLM Analyzer → Report & Notify → Correction
+```
+
+### Pipeline Nodes
 
 | Node | Type | Role |
 |------|------|------|
-| coordinator | Deterministic | Extract data from DynamoDB Stream / S3, initialize pipeline |
-| profiler | Autonomous Agent | Per-column statistical profiling + trend detection |
-| schema_analyzer | Autonomous Agent | Schema inference + rule mapping + **dynamic rule generation** |
-| rule_validator | Autonomous Agent | 8 static rules + dynamic rules, **strategy switching**, **delegation** |
-| semantic_analyzer | Autonomous Agent | LLM semantic analysis + iterative reasoning + impact scoring |
-| report_notify | Deterministic | Generate report (S3) + health score + Slack notification |
-| correction | Deterministic | Apply approved corrections + quarantine bad data |
+| **Coordinator** | Deterministic | Extract data from DynamoDB / S3, initialize pipeline state |
+| **Rule Validator** | Hybrid (Deterministic + LLM) | Static rules (YAML) + LLM-generated dynamic rules, full-data profiling, deterministic full-scan |
+| **Anomaly Detector** (v2 only) | Statistical | Z-Score, IQR, Isolation Forest, conditional outlier, correlation, rare combination detection |
+| **LLM Analyzer** | LLM (Claude) | Semantic analysis of suspect records, error/false-positive classification with confidence (HIGH/MEDIUM/LOW), correction suggestions |
+| **Report & Notify** | Deterministic | Generate DQ report (S3), compute health score, Slack notification |
+| **Correction** | Deterministic | Human-in-the-Loop approval-based correction + quarantine |
 
-**33 tools** across validation, profiling, lineage, S3/DynamoDB, Slack, and more.
+### 4-Layer Validation
+
+| Layer | Method | Example |
+|-------|--------|---------|
+| 1. Static Rules | Pre-defined YAML rules | Phone number pattern mismatch |
+| 2. Dynamic Rules | LLM-generated rules from data profiling | "COD payment but delivery fee = 0" |
+| 3. Anomaly Detection | Statistical algorithms (v2) | Delivery fee Z-Score 4.2 outlier |
+| 4. LLM Analysis | Contextual semantic analysis | "0.005kg is normal for document delivery" → false positive removed |
+
+**45 tools** across validation, profiling, rule generation, lineage, S3/DynamoDB, Slack, and more.
 
 ## Screenshots
 
@@ -32,11 +46,11 @@ Load sample delivery data from S3 or upload your own CSV file to prepare data fo
 
 ### Validation Results — Summary & Dynamic Rules
 ![Validation Results Summary](img/result_1.png)
-Health score, LLM token usage, cost estimate, and auto-generated dynamic rules (AUTO-001 ~ AUTO-007).
+Health score, pipeline flow metrics, false positive removal with Popover explanations, and auto-generated dynamic rules.
 
 ### Validation Results — Pipeline Stages & Per-Record Details
 ![Validation Results Detail](img/result_2.png)
-Stage-by-stage execution timeline, error type distribution, and per-record validation details with LLM confidence and correction suggestions.
+Stage-by-stage execution timeline, 3-state status (오류 확정 / 정상 판정 / 미판정), sortable columns, and correction suggestions.
 
 ## Quick Start
 
@@ -103,9 +117,17 @@ cd web/frontend && npm install && npm run build && cd ../..
 ./web/start.sh              # Open http://localhost:8001
 ```
 
+### Deploy to AgentCore
+
+```bash
+cd agent
+agentcore deploy    # Direct code deploy to Bedrock AgentCore Runtime
+agentcore status    # Check deployment status
+```
+
 ### Deploy to AWS (CloudFormation)
 
-Deploy the full application stack to AWS with a single command. The included CloudFormation template provisions all infrastructure automatically.
+Deploy the full web application stack to AWS with a single command. The included CloudFormation template provisions all infrastructure automatically.
 
 #### What gets created
 
@@ -180,28 +202,6 @@ curl https://<cloudfront-domain>.cloudfront.net/api/health
 open https://<cloudfront-domain>.cloudfront.net
 ```
 
-#### Update deployment
-
-To deploy code changes to an existing stack, re-run `./web/deploy.sh`. If only application code changed (no CloudFormation template changes), you can redeploy directly to the EC2 instance via SSM:
-
-```bash
-# Upload new package to S3
-aws s3 cp /tmp/dq-agent-web.tar.gz s3://<deploy-bucket>/dq-agent-web.tar.gz
-
-# Redeploy on EC2 via SSM
-aws ssm send-command \
-  --instance-ids <instance-id> \
-  --document-name "AWS-RunShellScript" \
-  --parameters commands='[
-    "aws s3 cp s3://<deploy-bucket>/dq-agent-web.tar.gz /tmp/dq-agent-web.tar.gz",
-    "rm -rf /opt/dq-agent-web/backend /opt/dq-agent-web/frontend",
-    "tar -xzf /tmp/dq-agent-web.tar.gz -C /opt/dq-agent-web",
-    "cd /opt/dq-agent-web/frontend && npm ci && npm run build",
-    "chown -R ec2-user:ec2-user /opt/dq-agent-web",
-    "systemctl restart dq-agent-web"
-  ]'
-```
-
 #### Clean up
 
 ```bash
@@ -218,10 +218,10 @@ aws s3 rb s3://<deploy-bucket> --force
 bedrock-dq-agent/
 ├── agent/                    # Core AI DQ agent
 │   ├── src/ai_dq_agent/     # Agent source code
-│   │   ├── agents/           # 7-node pipeline (graph.py)
+│   │   ├── agents/           # Pipeline nodes (graph.py, coordinator, rule_validator, anomaly_detector, llm_analyzer, etc.)
 │   │   ├── models/           # Pydantic data models
 │   │   ├── rules/            # Static validation rules (YAML)
-│   │   └── tools/            # 33 @tool functions
+│   │   └── tools/            # 45 @tool functions
 │   ├── config/rules/         # Domain-specific rules
 │   ├── tests/                # Unit + integration tests
 │   ├── agentcore_agent.py    # AgentCore Runtime entry point
