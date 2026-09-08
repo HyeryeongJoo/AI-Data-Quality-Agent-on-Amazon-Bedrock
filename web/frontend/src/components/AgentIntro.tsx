@@ -73,7 +73,7 @@ function PipelineFlowDiagram() {
         fontSize: 12,
         color: '#687078',
       }}>
-        v2 파이프라인 (6개 노드) | DAG 기반 순차 실행 | 조건부 라우팅: 의심 항목 0건 시 LLM Analyzer 건너뜀 | dry_run 시 Correction 건너뜀
+        v2 파이프라인 (6개 노드) | Directed Acyclic Graph(DAG, 방향성 비순환 그래프) 기반 순차 실행 | 조건부 라우팅: 의심 항목 0건 시 LLM Analyzer 건너뜀 | dry_run 시 Correction 건너뜀
       </div>
     </div>
   );
@@ -720,7 +720,7 @@ function TechStackDetail() {
             { category: '중간 저장소', service: 'Amazon S3', purpose: '스테이징 데이터, 의심 항목(JSONL), 판정 결과, 리포트(Markdown), 스냅샷 저장.' },
             { category: '동적 규칙 캐시', service: 'Amazon S3', purpose: '스키마 fingerprint(SHA-256) 기반으로 LLM 생성 동적 규칙을 캐시. TTL 1시간. 동일 스키마 반복 검증 시 LLM 호출 2회(~40초)를 절감.' },
             { category: '알림', service: 'Slack API', purpose: '검증 결과 요약, 인터랙티브 승인 메시지 발송. Human-in-the-Loop 승인 게이트.' },
-            { category: '에이전트 프레임워크', service: 'Strands Agents SDK', purpose: '@tool 데코레이터 기반 도구 정의, GraphBuilder로 DAG 파이프라인 구성.' },
+            { category: '에이전트 프레임워크', service: 'Strands Agents SDK', purpose: '@tool 데코레이터 기반 도구 정의, GraphBuilder로 Directed Acyclic Graph(DAG, 방향성 비순환 그래프) 파이프라인 구성.' },
           ]}
           columnDefinitions={[
             { id: 'category', header: '영역', cell: item => <Box fontWeight="bold">{item.category}</Box>, width: 130 },
@@ -878,7 +878,7 @@ export default function AgentIntro() {
             defaultExpanded
             headerText="에이전트 구조 및 작동 흐름"
             variant="container"
-            headerDescription="6개 노드로 구성된 DAG 기반 파이프라인 (v2)"
+            headerDescription="6개 노드로 구성된 Directed Acyclic Graph(DAG, 방향성 비순환 그래프) 기반 파이프라인 (v2)"
           >
             <SpaceBetween size="l">
               <Box variant="p">
