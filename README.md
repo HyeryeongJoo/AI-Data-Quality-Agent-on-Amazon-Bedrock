@@ -143,11 +143,11 @@ Load sample delivery data from S3 or upload your own CSV file. Supports the exte
 ![Validation Results Summary](img/result_summary.png)
 Health score (81%), pipeline flow metrics (rule suspects → anomaly additions → LLM analysis targets → false positives removed → confirmed errors), false positive rate, and LLM token usage with cost estimate.
 
-### Validation Results — Per-Record Details (v1)
+### Validation Results
 ![Validation Results Detail](img/result.png)
 Per-record 3-state status (confirmed error / normal / pending), all columns sortable, violation details with rule IDs, LLM confidence levels, and correction suggestions.
 
-### Validation Results — Per-Record Details (v2)
+### Validation Results — Per-Record Details
 ![Validation Results Detail v2](img/result_details_v2.png)
 Same view with additional anomaly-type records (statistical_anomaly, contextual_anomaly) surfaced by the Anomaly Detector, showing the expanded error type distribution unique to the v2 pipeline.
 
