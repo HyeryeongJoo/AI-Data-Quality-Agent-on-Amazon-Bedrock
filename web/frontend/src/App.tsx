@@ -41,19 +41,22 @@ export default function App() {
   const [columns, setColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [dataSource, setDataSource] = useState<string>('s3://dq-agent-staging-dev-joohyery/sample/data.jsonl');
-  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [validationResults, setValidationResults] = useState<Record<string, ValidationResult | null>>({});
   const [activeHref, setActiveHref] = useState('/architecture');
   const { notifications, notifySuccess, notifyError } = useNotifications();
+
+  const pipelineVersion = activeHref === '/validation-v2' ? 'v2' : 'v1';
+  const validationResult = validationResults[pipelineVersion] ?? null;
 
   const handleDataLoaded = (recs: DataRecord[], cols: string[]) => {
     setRecords(recs);
     setColumns(cols);
-    setValidationResult(null);
+    setValidationResults({});
     notifySuccess(`S3에서 ${recs.length}건의 레코드를 로드했습니다.`);
   };
 
   const handleValidationComplete = (result: ValidationResult) => {
-    setValidationResult(result);
+    setValidationResults(prev => ({ ...prev, [pipelineVersion]: result }));
     if (result.status === 'completed') {
       const statusKr = result.health_status === 'healthy' ? '정상' : result.health_status === 'warning' ? '주의' : '위험';
       notifySuccess(
@@ -125,9 +128,10 @@ export default function App() {
                   onError={notifyError}
                 />
                 <ValidationRunner
+                  key={pipelineVersion}
                   hasData={records.length > 0}
                   s3DataPath={dataSource}
-                  pipelineVersion={activeHref === '/validation-v2' ? 'v2' : 'v1'}
+                  pipelineVersion={pipelineVersion}
                   onValidationComplete={handleValidationComplete}
                   onError={notifyError}
                 />

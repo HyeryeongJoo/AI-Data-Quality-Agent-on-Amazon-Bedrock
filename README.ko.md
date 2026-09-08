@@ -4,39 +4,142 @@
 
 ## 아키텍처
 
+두 가지 파이프라인 버전을 제공합니다:
+
+**v1 — 기본 검증 (규칙 + LLM)** — 5노드 파이프라인:
 ```
-coordinator → profiler → schema_analyzer → rule_validator
-                                                ↓
-              correction ← report_notify ← semantic_analyzer
+Coordinator → Rule Validator → LLM Analyzer → Report & Notify → Correction
 ```
 
-**7노드 에이전트 파이프라인** (조건부 라우팅):
+**v2 — 확장 검증 (규칙 + 이상치 + LLM)** — 6노드 파이프라인:
+```
+Coordinator → Rule Validator → Anomaly Detector → LLM Analyzer → Report & Notify → Correction
+```
+
+### 파이프라인 노드
 
 | 노드 | 유형 | 역할 |
 |------|------|------|
-| coordinator | 결정론적 | DynamoDB Stream/S3에서 데이터 추출, 파이프라인 초기화 |
-| profiler | 자율적 Agent | 컬럼별 통계 프로파일링 + 트렌드 감지 |
-| schema_analyzer | 자율적 Agent | 스키마 추론 + 규칙 매핑 + **동적 규칙 생성** |
-| rule_validator | 자율적 Agent | 8개 정적 규칙 + 동적 규칙, **전략 전환**, **동적 위임** |
-| semantic_analyzer | 자율적 Agent | LLM 시맨틱 분석 + 반복 추론 + 영향도 점수 |
-| report_notify | 결정론적 | 보고서 생성 (S3) + 건강도 점수 + Slack 알림 |
-| correction | 결정론적 | 승인된 항목 수정 + 불량 데이터 격리 |
+| **Coordinator** | 결정론적 | DynamoDB / S3에서 데이터 추출, 파이프라인 상태 초기화 |
+| **Rule Validator** | 하이브리드 (결정론적 + LLM) | 정적 규칙 (YAML) + LLM 생성 동적 규칙, 전체 데이터 프로파일링, 결정론적 전수 검사 |
+| **Anomaly Detector** (v2 전용) | 통계적 | Z-Score, IQR, Isolation Forest, 조건부 이상치, 상관관계, 희귀 조합 탐지 |
+| **LLM Analyzer** | LLM (Claude) | 의심 레코드 시맨틱 분석, 오류/오탐 분류 및 신뢰도 (HIGH/MEDIUM/LOW), 보정 제안 |
+| **Report & Notify** | 결정론적 | DQ 보고서 생성 (S3), 건강도 점수 산출, Slack 알림 |
+| **Correction** | 결정론적 | Human-in-the-Loop 승인 기반 수정 + 격리 |
 
-**33개 도구** — 검증, 프로파일링, 계보 분석, S3/DynamoDB, Slack 등
+### 4계층 검증
+
+| 계층 | 방식 | 예시 |
+|------|------|------|
+| 1. 정적 규칙 | 사전 정의 YAML 규칙 | 전화번호 패턴 불일치 |
+| 2. 동적 규칙 | 데이터 프로파일링 기반 LLM 생성 규칙 | "COD 결제인데 배송비 = 0" |
+| 3. 이상치 탐지 | 통계 알고리즘 (v2) | 배송비 Z-Score 4.2 이상치 |
+| 4. LLM 분석 | 맥락적 시맨틱 분석 | "0.005kg은 서류 배송이므로 정상" → 오탐 제거 |
+
+**45개 도구** — 검증, 프로파일링, 규칙 생성, 계보 분석, S3/DynamoDB, Slack 등
+
+### Rule Validator: 정적 규칙 + 동적 규칙
+
+Rule Validator는 두 가지 보완적인 규칙 유형을 결합하여 탐지 커버리지를 극대화합니다.
+
+#### 정적 규칙 (`agent/src/ai_dq_agent/rules/default_rules.yaml`)
+
+도메인 전문가가 직접 작성한 비즈니스 검증 규칙입니다. 결정론적(Deterministic)으로 동작하여 동일한 입력에 항상 동일한 결과를 반환합니다.
+
+| 오류 유형 | 검증 도구 | 예시 |
+|-----------|-----------|------|
+| `out_of_range` | `range_check` | `weight_kg`이 0.01~30.0 kg 범위 초과, `status_code`가 허용 enum 외 값 |
+| `format_inconsistency` | `regex_validate` | 전화번호 패턴 불일치, 운송장번호가 10~15자리 숫자 아님 |
+| `temporal_violation` | `timestamp_compare` | `delivery_time`이 `dispatch_time`보다 이전 |
+| `cross_column_inconsistency` | `address_classify`, `value_condition` | 도로명 주소인데 `road_addr_yn=0`, 착불 결제인데 `cod_amount=0` |
+
+정적 규칙은 이미 알고 있는 오류를 빠르고 저렴하게 탐지합니다. 한계는 사전에 정의하지 않은 패턴은 탐지할 수 없다는 점입니다.
+
+#### 동적 규칙 (런타임에 LLM이 자동 생성, ID: `AUTO-NNN`)
+
+Claude가 전체 데이터 프로파일링 결과를 분석하여, 정적 규칙이 커버하지 못하는 새로운 검증 규칙을 자동 생성합니다. 샘플 몇 건이 아닌 전체 데이터 분포에 기반한 규칙을 만들기 위해 LLM을 2회 호출하는 2단계 프로세스를 사용합니다:
+
+```
+1단계  스키마 추론 + S3 캐시 확인 (SHA-256 fingerprint, TTL 1시간)
+       └─ 캐시 HIT  → 2~4단계 건너뜀, 기존 규칙 재활용 (실행 시간 약 40초 절감)
+       └─ 캐시 MISS → 계속 진행
+
+2단계  LLM 1차 호출 (스키마 + 샘플 5건)
+       → "어떤 크로스컬럼 조건을 조사해야 하는가?"
+       → 예: "착불 결제인데 배송비=0인 조합", "거리 대비 배송 시간 비율"
+
+3단계  전체 데이터 프로파일링 (LLM 호출 없음, 결정론적)
+       → 컬럼별 통계: null율, 고유값 수, Top-N 분포
+       → 크로스컬럼 조건의 전체 레코드 대비 매칭률 산출
+
+4단계  LLM 2차 호출 (프로파일링 결과 + 샘플 20건)
+       → "기존 규칙과 중복되지 않는 새 규칙을 생성하라"
+       → 전체 데이터 분포를 근거로 정확한 규칙 생성
+       → 결과를 S3에 캐시 저장 (스키마 SHA-256 fingerprint 키)
+
+5단계  결정론적 전수 스캔
+       → 정적 규칙 + 동적 규칙 전체를 모든 레코드에 적용
+```
+
+> **핵심 설계 원칙 — "LLM이 발견하고, 규칙이 검증한다"**: LLM은 어떤 패턴을 검사해야 하는지를 결정하고, 실제 레코드 검증은 결정론적 도구 함수(`range_check`, `regex_validate`, `timestamp_compare`)가 수행합니다. 이를 통해 LLM의 창의적 패턴 발견 능력과 결정론적 검증의 재현 가능성을 모두 확보합니다.
+
+LLM을 1회가 아닌 2회 호출하는 이유: 샘플 5건만 보고 규칙을 바로 생성하면 전체 데이터의 실제 분포를 반영하지 못합니다. 2단계 방식은 전체 데이터 프로파일링을 먼저 수행하여 LLM이 실제 컬럼 분포에 근거한 정확한 규칙을 생성할 수 있도록 합니다.
+
+### Anomaly Detector (v2 전용): 통계적 + 문맥적 이상치 탐지
+
+Anomaly Detector는 전체 데이터셋을 분석하여 규칙 기반 검증으로는 고정된 min/max 경계나 정규식으로 표현할 수 없는 통계적·문맥적 이상 레코드를 탐지합니다.
+
+| 기법 | 분류 | 탐지 대상 |
+|------|------|-----------|
+| Z-Score | 통계적 | 평균에서 3σ 이상 벗어난 단변량 극단값 |
+| IQR | 통계적 | Q1−1.5×IQR ~ Q3+1.5×IQR 범위 밖의 값 |
+| Isolation Forest | 통계적 (다변량) | 머신러닝 기반 다변량 이상치 |
+| 조건부 이상치 | 문맥적 | 전체적으로는 정상이지만 특정 그룹 내에서 이상인 값 (예: 품목 유형별 중량) |
+| 상관관계 이탈 | 문맥적 | 컬럼 간 기대 관계를 위반하는 값 (예: 거리 대비 배송 시간) |
+| 희귀 조합 | 문맥적 | 컬럼 간 드문 값 조합 |
+
+Anomaly Detector가 발견한 의심 항목은 Rule Validator 의심 항목과 병합된 후 LLM Analyzer로 전달됩니다. 중복 레코드는 자동으로 제거됩니다.
+
+### LLM Analyzer: 시맨틱 분석 + 신뢰도 판정
+
+LLM Analyzer(Claude Sonnet)는 전체 데이터셋이 아닌 Rule Validator와 Anomaly Detector가 수집한 의심 항목만을 분석합니다. API 호출 횟수를 최소화하기 위해 배치 단위(기본 50건/호출)로 PRIMARY 분석을 수행합니다.
+
+각 의심 항목은 시스템 프롬프트에 명시된 신뢰도 기준으로 판정됩니다:
+
+| 신뢰도 | 판정 기준 | 예시 |
+|--------|-----------|------|
+| HIGH | 데이터만으로 오류 여부를 확실히 판단할 수 있는 경우 | 형식 오류 (전화번호 자릿수), 명백한 범위 초과 (음수 중량), 논리적 모순 (배송 전 발송) |
+| MEDIUM | 오류 가능성이 높지만 비즈니스 예외가 존재할 수 있는 경우 | 경계값, 비표준이지만 유효할 수 있는 형식 |
+| LOW | 오류인지 확신할 수 없는 경우 | 통계적으로 드물지만 정상 범위일 수 있는 값, 문맥 의존적 판단 |
+
+모든 신뢰도(HIGH/MEDIUM/LOW)의 판정 결과가 사용자에게 제공됩니다 — 자동으로 제외되는 항목은 없습니다.
+
+**건강도 점수(Health Score)** 는 LLM이 확정한 오류를 신뢰도 가중치로 산출합니다:
+
+```
+가중 오류율 = (HIGH 오류 × 1.0 + MEDIUM/LOW 오류 × 0.5) / 전체 레코드 수
+건강도 점수 = 1.0 − 가중 오류율
+```
+
+기준: 80% 이상 → 정상(Healthy) | 50~79% → 주의(Warning) | 50% 미만 → 위험(Critical)
 
 ## 스크린샷
 
-### 데이터 검증 실행 — 샘플 데이터 테이블
+### 샘플 데이터 테이블
 ![샘플 데이터](img/sample_data.png)
-S3에서 택배 샘플 데이터를 로드하거나, CSV 파일을 직접 업로드하여 검증 데이터를 준비합니다.
+S3에서 택배 샘플 데이터를 로드하거나 CSV 파일을 직접 업로드합니다. 확장 파이프라인 (v2)에서는 이상치 탐지 기법 (Z-Score, IQR, Isolation Forest, 조건부, 상관관계, 희귀 조합) 선택을 지원합니다.
 
-### 검증 결과 — 요약 및 동적 생성 규칙
-![검증 결과 요약](img/result_1.png)
-건강도 점수, LLM 토큰 사용량, 비용 추정, LLM이 자동 생성한 동적 규칙 (AUTO-001 ~ AUTO-007).
+### 검증 결과 — 요약
+![검증 결과 요약](img/result_summary.png)
+건강도 점수 (81%), 파이프라인 흐름 메트릭 (규칙 기반 의심 → 이상치 탐지 추가 → LLM 분석 대상 → 오탐 제거 → LLM 오류 판정), 오탐율, LLM 토큰 사용량 및 비용 추정.
 
-### 검증 결과 — 파이프라인 단계별 실행 및 레코드별 상세
-![검증 결과 상세](img/result_2.png)
-단계별 실행 타임라인, 오류 유형 분포, 레코드별 규칙 위반 사항 및 LLM 판정 근거·보정 추천.
+### 검증 결과 — 레코드별 상세
+![검증 결과 상세](img/result_details.png)
+레코드별 3-상태 (오류 확정 / 정상 판정 / 미판정), 전체 컬럼 정렬 지원, 위반 상세 및 규칙 ID, LLM 신뢰도, 보정 제안.
+
+### 동적 규칙 (자동 생성)
+![동적 규칙](img/auto_rules.png)
+데이터 프로파일링 기반 LLM 자동 생성 규칙 (AUTO-001 ~ AUTO-014). 허용값 검사, 형식 검증, 컬럼 간 정합성, 시간 제약 등을 포함합니다.
 
 ## 빠른 시작
 
@@ -103,9 +206,17 @@ cd web/frontend && npm install && npm run build && cd ../..
 ./web/start.sh              # http://localhost:8001 에서 접속
 ```
 
+### AgentCore 배포
+
+```bash
+cd agent
+agentcore deploy    # Bedrock AgentCore Runtime에 코드 직접 배포
+agentcore status    # 배포 상태 확인
+```
+
 ### AWS 배포 (CloudFormation)
 
-하나의 명령어로 전체 애플리케이션 스택을 AWS에 배포합니다. 포함된 CloudFormation 템플릿이 모든 인프라를 자동으로 프로비저닝합니다.
+하나의 명령어로 전체 웹 애플리케이션 스택을 AWS에 배포합니다. 포함된 CloudFormation 템플릿이 모든 인프라를 자동으로 프로비저닝합니다.
 
 #### 생성되는 리소스
 
@@ -180,28 +291,6 @@ curl https://<cloudfront-domain>.cloudfront.net/api/health
 open https://<cloudfront-domain>.cloudfront.net
 ```
 
-#### 코드 업데이트 배포
-
-기존 스택에 코드 변경 사항을 배포하려면 `./web/deploy.sh`를 다시 실행합니다. 애플리케이션 코드만 변경된 경우 (CloudFormation 템플릿 변경 없음), SSM을 통해 EC2에 직접 재배포할 수 있습니다:
-
-```bash
-# 새 패키지를 S3에 업로드
-aws s3 cp /tmp/dq-agent-web.tar.gz s3://<deploy-bucket>/dq-agent-web.tar.gz
-
-# SSM으로 EC2에 재배포
-aws ssm send-command \
-  --instance-ids <instance-id> \
-  --document-name "AWS-RunShellScript" \
-  --parameters commands='[
-    "aws s3 cp s3://<deploy-bucket>/dq-agent-web.tar.gz /tmp/dq-agent-web.tar.gz",
-    "rm -rf /opt/dq-agent-web/backend /opt/dq-agent-web/frontend",
-    "tar -xzf /tmp/dq-agent-web.tar.gz -C /opt/dq-agent-web",
-    "cd /opt/dq-agent-web/frontend && npm ci && npm run build",
-    "chown -R ec2-user:ec2-user /opt/dq-agent-web",
-    "systemctl restart dq-agent-web"
-  ]'
-```
-
 #### 리소스 정리
 
 ```bash
@@ -218,10 +307,10 @@ aws s3 rb s3://<deploy-bucket> --force
 bedrock-dq-agent/
 ├── agent/                    # 핵심 AI DQ 에이전트
 │   ├── src/ai_dq_agent/     # 에이전트 소스 코드
-│   │   ├── agents/           # 7노드 파이프라인 (graph.py)
+│   │   ├── agents/           # 파이프라인 노드 (graph.py, coordinator, rule_validator, anomaly_detector, llm_analyzer 등)
 │   │   ├── models/           # Pydantic 데이터 모델
 │   │   ├── rules/            # 정적 검증 규칙 (YAML)
-│   │   └── tools/            # 33개 @tool 함수
+│   │   └── tools/            # 45개 @tool 함수
 │   ├── config/rules/         # 도메인별 규칙
 │   ├── tests/                # 단위 + 통합 테스트
 │   ├── agentcore_agent.py    # AgentCore Runtime 진입점

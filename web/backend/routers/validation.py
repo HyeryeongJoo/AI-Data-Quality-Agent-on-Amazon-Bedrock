@@ -14,7 +14,7 @@ import botocore.config
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from models import RunValidationRequest
+from models import DEFAULT_ANOMALY_METHODS, RunValidationRequest
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -43,9 +43,14 @@ async def run_validation(req: RunValidationRequest):
         "error": None,
     }
 
+    # v2: anomaly_methods=None → use all defaults; v1: always None
+    anomaly_methods = None
+    if req.pipeline_version == "v2":
+        anomaly_methods = req.anomaly_methods if req.anomaly_methods is not None else DEFAULT_ANOMALY_METHODS
+
     thread = Thread(
         target=_execute_pipeline,
-        args=(job_id, req.s3_data_path, req.dry_run, pipeline_id, req.pipeline_version, req.anomaly_methods),
+        args=(job_id, req.s3_data_path, req.dry_run, pipeline_id, req.pipeline_version, anomaly_methods),
         daemon=True,
     )
     thread.start()

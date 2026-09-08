@@ -6,12 +6,12 @@ AI-powered Data Quality validation agent built with [Strands Agents SDK](https:/
 
 Two pipeline versions are available:
 
-**v1 — 기본 검증 (규칙 + LLM)** — 5-node pipeline:
+**v1 — Basic Validation (Rules + LLM)** — 5-node pipeline:
 ```
 Coordinator → Rule Validator → LLM Analyzer → Report & Notify → Correction
 ```
 
-**v2 — 확장 검증 (규칙 + 이상치 + LLM)** — 6-node pipeline:
+**v2 — Extended Validation (Rules + Anomaly Detection + LLM)** — 6-node pipeline:
 ```
 Coordinator → Rule Validator → Anomaly Detector → LLM Analyzer → Report & Notify → Correction
 ```
@@ -38,6 +38,91 @@ Coordinator → Rule Validator → Anomaly Detector → LLM Analyzer → Report 
 
 **45 tools** across validation, profiling, rule generation, lineage, S3/DynamoDB, Slack, and more.
 
+### Rule Validator: Static Rules + Dynamic Rules
+
+The Rule Validator combines two complementary rule types to maximize coverage.
+
+#### Static Rules (`agent/src/ai_dq_agent/rules/default_rules.yaml`)
+
+Pre-defined business validation rules authored by domain experts. Deterministic — same input always produces the same result.
+
+| Error Type | Validation Tool | Example |
+|------------|-----------------|---------|
+| `out_of_range` | `range_check` | `weight_kg` outside 0.01–30.0 kg, `status_code` not in allowed enum |
+| `format_inconsistency` | `regex_validate` | Phone number pattern mismatch, tracking ID not 10–15 digits |
+| `temporal_violation` | `timestamp_compare` | `delivery_time` earlier than `dispatch_time` |
+| `cross_column_inconsistency` | `address_classify`, `value_condition` | Road address but `road_addr_yn=0`; COD payment but `cod_amount=0` |
+
+Static rules catch known, well-defined errors quickly and cheaply. Their limitation: they cannot detect patterns that were never explicitly defined.
+
+#### Dynamic Rules (LLM-generated at runtime, IDs: `AUTO-NNN`)
+
+Claude analyzes full-data profiling statistics and generates new validation rules for patterns not covered by static rules. A two-round LLM process is used so that rules reflect the entire dataset distribution — not just a small sample:
+
+```
+Step 1  Schema inference + S3 cache check (SHA-256 fingerprint, TTL 1h)
+        └─ Cache HIT  → skip steps 2–4, reuse rules (saves ~40s per run)
+        └─ Cache MISS → continue
+
+Step 2  LLM Round 1 (schema + 5 sample records)
+        → "What cross-column conditions should we investigate?"
+        → e.g. "COD payment AND delivery fee = 0", "distance vs. transit time ratio"
+
+Step 3  Full-data profiling (no LLM — deterministic)
+        → Column stats: null rate, unique count, top-value distribution
+        → Cross-column condition match rates across all records
+
+Step 4  LLM Round 2 (profiling results + 20 sample records)
+        → "Generate new rules that don't duplicate existing ones."
+        → Rules are grounded in the real data distribution, not just samples
+        → Results cached to S3 (keyed by schema SHA-256 fingerprint)
+
+Step 5  Deterministic full-scan
+        → Apply ALL rules (static + dynamic) to every record
+```
+
+> **Core design principle — "LLM discovers, rules verify"**: LLM decides *what* patterns to validate; the actual record-level checking is performed by deterministic tool functions (`range_check`, `regex_validate`, `timestamp_compare`). This combines LLM's creative pattern discovery with the reproducibility of deterministic validation.
+
+Why two LLM rounds instead of one? Generating rules directly from 5 sample records would reflect only a small slice of the data. The two-round approach forces a full-data profiling pass first so that the rules LLM generates are anchored to the real column distributions across all records.
+
+### Anomaly Detector (v2 only): Statistical + Contextual Outlier Detection
+
+The Anomaly Detector runs on the full dataset to find records that are statistically or contextually abnormal — patterns that rule-based checks cannot express as fixed min/max bounds or regex patterns.
+
+| Method | Category | What it detects |
+|--------|----------|-----------------|
+| Z-Score | Statistical | Single-column values deviating more than 3σ from the mean |
+| IQR | Statistical | Values outside Q1−1.5×IQR ~ Q3+1.5×IQR |
+| Isolation Forest | Statistical (multivariate) | Multi-dimensional outliers using machine learning |
+| Conditional outlier | Contextual | Values normal globally but abnormal within a sub-group (e.g., weight by item type) |
+| Correlation deviation | Contextual | Values that violate expected relationships between columns (e.g., distance vs. transit time) |
+| Rare combination | Contextual | Unusual co-occurrence of values across columns |
+
+Suspects found by Anomaly Detector are merged with Rule Validator suspects before being passed to LLM Analyzer. Duplicate records are deduplicated automatically.
+
+### LLM Analyzer: Semantic Analysis + Confidence Judgment
+
+The LLM Analyzer (Claude Sonnet) receives only the suspect records collected by Rule Validator and Anomaly Detector — not the full dataset. It performs PRIMARY analysis in batches (default 50 records/call) to minimize API calls.
+
+Each suspect is judged with an explicit confidence level defined in the system prompt:
+
+| Confidence | Criteria | Example |
+|------------|----------|---------|
+| HIGH | Error can be determined from data alone | Format error (phone digits), obvious range violation (negative weight), logical contradiction (delivery before dispatch) |
+| MEDIUM | Likely an error but business exceptions may exist | Boundary values, non-standard but potentially valid formats |
+| LOW | Cannot be certain whether it is an error | Statistically rare but within valid range, context-dependent |
+
+All confidence levels (HIGH/MEDIUM/LOW) are surfaced to the user — none are silently discarded.
+
+**Health Score** is computed from LLM-confirmed errors, weighted by confidence:
+
+```
+weighted_error_rate = (HIGH errors × 1.0 + MEDIUM/LOW errors × 0.5) / total_records
+health_score        = 1.0 − weighted_error_rate
+```
+
+Thresholds: ≥ 80% → Healthy | 50–79% → Warning | < 50% → Critical
+
 ## Screenshots
 
 ### Sample Data Table
@@ -46,11 +131,11 @@ Load sample delivery data from S3 or upload your own CSV file. Supports the exte
 
 ### Validation Results — Summary
 ![Validation Results Summary](img/result_summary.png)
-Health score (81%), pipeline flow metrics (규칙 기반 의심 → 이상치 탐지 추가 → LLM 분석 대상 → 오탐 제거 → LLM 오류 판정), false positive rate, and LLM token usage with cost estimate.
+Health score (81%), pipeline flow metrics (rule suspects → anomaly additions → LLM analysis targets → false positives removed → confirmed errors), false positive rate, and LLM token usage with cost estimate.
 
 ### Validation Results — Per-Record Details
 ![Validation Results Detail](img/result_details.png)
-Per-record 3-state status (오류 확정 / 정상 판정 / 미판정), all columns sortable, violation details with rule IDs, LLM confidence levels, and correction suggestions.
+Per-record 3-state status (confirmed error / normal / pending), all columns sortable, violation details with rule IDs, LLM confidence levels, and correction suggestions.
 
 ### Dynamic Rules (Auto-generated)
 ![Dynamic Rules](img/auto_rules.png)
