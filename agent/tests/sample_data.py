@@ -473,6 +473,33 @@ def generate_sample_dataset() -> list[dict]:
     r["delivery_attempt_count"] = 7        # ERROR: semantic (7 attempts for seafood?)
     records.append(r)
 
+    # ================================================================
+    # GROUP G: Intentional false positives (101-103)
+    # Rule fires (weight_kg < 0.01) but LLM should confirm as normal.
+    # Realistic descriptions typical in actual Korean delivery systems.
+    # ================================================================
+
+    r = _clean_record(101)
+    r["weight_kg"] = 0.005                 # OHTAM: below min (0.01) → rule fires
+    r["item_category"] = "서류"
+    r["item_description"] = "서류 배송"    # LLM: 서류는 경량 가능 → 정상 (오탐 제거)
+    r["fee_amount"] = _fee(0.005)
+    records.append(r)
+
+    r = _clean_record(102)
+    r["weight_kg"] = 0.007                 # OHTAM: below min → rule fires
+    r["item_category"] = "서류"
+    r["item_description"] = "서류 배송"    # LLM: 서류 카테고리, 경량 정상 → 오탐 제거
+    r["fee_amount"] = _fee(0.007)
+    records.append(r)
+
+    r = _clean_record(103)
+    r["weight_kg"] = 0.006                 # OHTAM: below min → rule fires
+    r["item_category"] = "전자제품"
+    r["item_description"] = "USB 배송"    # LLM: USB 드라이브는 가벼움 → 정상 (오탐 제거)
+    r["fee_amount"] = _fee(0.006)
+    records.append(r)
+
     return records
 
 
