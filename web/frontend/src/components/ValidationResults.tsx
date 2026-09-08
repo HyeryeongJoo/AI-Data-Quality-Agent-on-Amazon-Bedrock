@@ -244,8 +244,14 @@ function SummaryCards({ result }: Props) {
       ? 'text-status-warning'
       : 'text-status-error';
 
-  // 의심 항목으로 한 번도 분류되지 않은 정상 통과 레코드 수
-  const uniqueSuspectCount = new Set((result.suspects ?? []).map(s => String(s.record_id))).size;
+  const ANOMALY_TYPES = new Set(['statistical_anomaly', 'contextual_anomaly']);
+  const allSuspects = result.suspects ?? [];
+  // 규칙 기반 고유 의심 레코드 (anomaly 타입 제외)
+  const ruleBasedSuspectCount = new Set(
+    allSuspects.filter(s => !ANOMALY_TYPES.has(s.error_type)).map(s => String(s.record_id))
+  ).size;
+  // 전체 고유 의심 레코드 (규칙 + 이상치 합산)
+  const uniqueSuspectCount = new Set(allSuspects.map(s => String(s.record_id))).size;
   const totalRecords = result.total_records ?? 0;
   const normalPassCount = totalRecords - uniqueSuspectCount;
 
@@ -333,7 +339,7 @@ function SummaryCards({ result }: Props) {
               <ColumnLayout columns={3} variant="text-grid">
                 <div>
                   <Box variant="awsui-key-label">규칙 기반 의심 항목</Box>
-                  <Box variant="p">{uniqueSuspectCount}건</Box>
+                  <Box variant="p">{ruleBasedSuspectCount}건</Box>
                   <Box variant="small" color="text-body-secondary">고유 레코드 기준</Box>
                 </div>
                 <div>
@@ -390,7 +396,7 @@ function SummaryCards({ result }: Props) {
                   <Box variant="awsui-key-label">LLM 분석 대상 (합산)</Box>
                   <Box variant="p">{totalAnalyzed}건</Box>
                   <Box variant="small" color="text-body-secondary">
-                    규칙 {uniqueSuspectCount} + 이상치 {anomaly.total_added}
+                    규칙 {ruleBasedSuspectCount} + 이상치 {anomaly.total_added}
                   </Box>
                 </div>
               </ColumnLayout>
