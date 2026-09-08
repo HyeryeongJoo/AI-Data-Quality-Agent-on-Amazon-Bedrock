@@ -17,8 +17,8 @@ import type { DataRecord, ValidationResult } from './types';
 const NAV_ITEMS = [
   { type: 'link' as const, text: '에이전트 아키텍처', href: '/architecture' },
   { type: 'divider' as const },
-  { type: 'link' as const, text: '기본 검증 (규칙 + LLM)', href: '/validation-v1' },
-  { type: 'link' as const, text: '확장 검증 (규칙 + 이상치 + LLM)', href: '/validation-v2' },
+  { type: 'link' as const, text: '규칙 기반 검증', href: '/validation-v1' },
+  { type: 'link' as const, text: '이상치 탐지 검증', href: '/validation-v2' },
 ];
 
 const PAGE_META: Record<string, { title: string; description: string }> = {
@@ -27,12 +27,12 @@ const PAGE_META: Record<string, { title: string; description: string }> = {
     description: 'Amazon Bedrock AgentCore 기반 AI 데이터 퀄리티 검증 에이전트의 구조와 동작 원리',
   },
   '/validation-v1': {
-    title: '기본 검증 (규칙 + LLM)',
-    description: '규칙 기반 검증 → LLM 분석 파이프라인 (5개 노드)',
+    title: '규칙 기반 검증',
+    description: '정적·동적 규칙으로 알려진 오류를 탐지하고 LLM이 최종 판정하는 5개 노드 파이프라인',
   },
   '/validation-v2': {
-    title: '확장 검증 (규칙 + 이상치 + LLM)',
-    description: '규칙 기반 검증 → 이상치 탐지 → LLM 분석 파이프라인 (6개 노드)',
+    title: '이상치 탐지 검증',
+    description: '규칙 기반 탐지에 통계적·문맥적 이상치 탐지를 더해 규칙이 놓치는 오류까지 발견하는 6개 노드 파이프라인',
   },
 };
 
