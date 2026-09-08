@@ -249,7 +249,7 @@ export default function ValidationRunner({ hasData, s3DataPath, pipelineVersion,
             </Button>
           }
         >
-          검증 실행 ({versionLabel})
+          검증 실행
         </Header>
       }
     >
