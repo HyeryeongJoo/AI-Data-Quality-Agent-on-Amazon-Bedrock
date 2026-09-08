@@ -579,9 +579,9 @@ function LlmVerificationDetail() {
   return (
     <ExpandableSection
       defaultExpanded
-      headerText="LLM 검증 (PRIMARY 분석 + 명시적 신뢰도 판정)"
+      headerText="LLM 오류 판정 방법"
       variant="container"
-      headerDescription="명시적 신뢰도 기준으로 투명한 판정을 제공하는 LLM 분석 아키텍처"
+      headerDescription="의심 항목을 배치로 분석하고, 시스템 프롬프트에 명시된 기준으로 오류 여부·신뢰도·보정 제안을 한 번의 호출에서 반환"
     >
       <SpaceBetween size="m">
         <Alert type="info" header="v2.1 변경사항">
