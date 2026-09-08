@@ -251,9 +251,13 @@ function SummaryCards({ result }: Props) {
     allSuspects.filter(s => !ANOMALY_TYPES.has(s.error_type)).map(s => String(s.record_id))
   ).size;
   // 전체 고유 의심 레코드 (규칙 + 이상치 합산)
-  const uniqueSuspectCount = new Set(allSuspects.map(s => String(s.record_id))).size;
+  // suspects 배열이 비어 있으면(S3 재읽기 실패) analysis_stats.total_analyzed로 대체
+  const uniqueSuspectCountFromSuspects = new Set(allSuspects.map(s => String(s.record_id))).size;
+  const uniqueSuspectCount = uniqueSuspectCountFromSuspects > 0
+    ? uniqueSuspectCountFromSuspects
+    : (result.analysis_stats?.total_analyzed ?? 0);
   const totalRecords = result.total_records ?? 0;
-  const normalPassCount = totalRecords - uniqueSuspectCount;
+  const normalPassCount = Math.max(0, totalRecords - uniqueSuspectCount);
 
   // 데이터 오류율: LLM 확정 오류 / 전체 스캔 레코드
   const violationCount = result.violation_count ?? 0;
