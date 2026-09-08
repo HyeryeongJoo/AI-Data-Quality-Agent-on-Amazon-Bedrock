@@ -438,13 +438,13 @@ function SuspectFilteringArchitecture() {
       headerDescription="Rule Validator → Anomaly Detector → LLM Analyzer 간 의심 항목(Suspect) 수집 및 필터링 아키텍처"
     >
       <SpaceBetween size="m">
-        <Alert type="info" header="예시: 샘플 데이터 151건 기준으로 이해하기 (v2 파이프라인)">
-          샘플 데이터 151건(정상 100건 + 이상 51건)을 예로 들겠습니다.
-          먼저 Rule Validator가 151건 전체를 규칙 기반으로 전수 스캔하여 약 34건의 의심 항목(Suspect)을 탐지합니다.
-          다음으로 Anomaly Detector가 151건 전체를 통계적/문맥적으로 분석하여,
-          규칙으로는 잡히지 않았지만 이상한 레코드(예: 8건)를 추가로 발견하여 기존 suspects에 merge합니다.
-          최종적으로 LLM Analyzer는 합산된 약 42건의 의심 항목만 정밀 분석하여 오류를 확정합니다.
-          나머지 109건은 LLM 호출 없이 정상 처리됩니다.
+        <Alert type="info" header="예시: 샘플 데이터 103건 기준으로 이해하기 (v2 파이프라인)">
+          샘플 데이터 103건(Group A 정상 50건 + 오류·이상 53건)을 예로 들겠습니다.
+          먼저 Rule Validator가 103건 전체를 규칙 기반으로 전수 스캔하여 약 30건의 의심 항목(Suspect)을 탐지합니다.
+          다음으로 Anomaly Detector가 103건 전체를 통계적/문맥적으로 분석하여,
+          규칙으로는 잡히지 않았지만 이상한 레코드(예: 10건)를 추가로 발견하여 기존 suspects에 merge합니다.
+          최종적으로 LLM Analyzer는 합산된 약 40건의 의심 항목만 정밀 분석하여 오류를 확정합니다.
+          나머지 63건은 LLM 호출 없이 정상 처리됩니다.
         </Alert>
 
         <div style={{
@@ -472,7 +472,7 @@ function SuspectFilteringArchitecture() {
               minWidth: 120,
             }}>
               <div style={{ fontWeight: 700, color: '#0972d3' }}>전체 데이터</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: '#0972d3', margin: '4px 0' }}>151건</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#0972d3', margin: '4px 0' }}>103건</div>
               <div style={{ fontSize: 11, color: '#687078' }}>S3 스테이징</div>
             </div>
 
@@ -491,11 +491,11 @@ function SuspectFilteringArchitecture() {
               <div style={{ fontSize: 11, color: '#687078', margin: '4px 0' }}>결정론적 전수 스캔</div>
               <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 8 }}>
                 <div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: '#037f0c' }}>117건</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#037f0c' }}>73건</div>
                   <div style={{ fontSize: 11, color: '#037f0c' }}>정상 통과</div>
                 </div>
                 <div style={{ borderLeft: '1px solid #e9ebed', paddingLeft: 12 }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: '#d13212' }}>34건</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#d13212' }}>30건</div>
                   <div style={{ fontSize: 11, color: '#d13212' }}>의심 항목</div>
                 </div>
               </div>
@@ -516,11 +516,11 @@ function SuspectFilteringArchitecture() {
               <div style={{ fontSize: 11, color: '#687078', margin: '4px 0' }}>통계·문맥 이상치 탐지</div>
               <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 8 }}>
                 <div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: '#9469d6' }}>+8건</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#9469d6' }}>+10건</div>
                   <div style={{ fontSize: 11, color: '#9469d6' }}>이상치 추가</div>
                 </div>
                 <div style={{ borderLeft: '1px solid #e9ebed', paddingLeft: 12 }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: '#d13212' }}>42건</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#d13212' }}>40건</div>
                   <div style={{ fontSize: 11, color: '#d13212' }}>합산 의심</div>
                 </div>
               </div>
@@ -560,7 +560,7 @@ function SuspectFilteringArchitecture() {
             fontSize: 12,
             color: '#687078',
           }}>
-            [v2 파이프라인 151건 예시] 규칙 34건 + 이상치 8건 = 의심 42건만 LLM 분석 (전체의 약 28%) | Anomaly Detector는 전체 데이터를 별도 분석하여 규칙이 놓친 이상치를 추가 발견
+            [v2 파이프라인 103건 예시] 규칙 30건 + 이상치 10건 = 의심 40건만 LLM 분석 (전체의 약 39%) | Anomaly Detector는 전체 데이터를 별도 분석하여 규칙이 놓친 이상치를 추가 발견
           </div>
         </div>
 
