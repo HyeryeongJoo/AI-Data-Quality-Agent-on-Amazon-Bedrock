@@ -603,7 +603,7 @@ function LlmVerificationDetail() {
             </Box>
             <Box variant="p">
               배치 단위(기본 50건)로 처리하여 LLM 호출 횟수를 최소화합니다.
-              각 항목에 대해 오류 유형, 판정 근거, 수정 제안을 함께 반환합니다.
+              <strong>한 번의 호출에서</strong> <code>is_error</code>(오류 여부), <code>confidence</code>(신뢰도), <code>suggested_correction</code>(보정 제안)을 동시에 반환합니다 — 신뢰도 판정을 위한 별도 추가 호출은 없습니다.
               모든 신뢰도의 판정 결과가 사용자에게 투명하게 제공되어 직접 확인할 수 있습니다.
             </Box>
           </SpaceBetween>

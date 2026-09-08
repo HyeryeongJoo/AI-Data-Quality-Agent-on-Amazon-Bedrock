@@ -87,9 +87,11 @@ Step 5  Deterministic full-scan
 |-------|-------|------|---------|
 | Rule Validator — Round 1 | 1 | Cache MISS only | Discover cross-column conditions to profile |
 | Rule Validator — Round 2 | 1 | Cache MISS only | Generate dynamic rules from profiling stats |
-| LLM Analyzer | ⌈suspects ÷ 50⌉ | Always (if suspects > 0) | PRIMARY analysis: classify errors, assign confidence, suggest corrections |
+| LLM Analyzer | ⌈suspects ÷ 50⌉ | Always (if suspects > 0) | PRIMARY analysis: in a **single response per batch**, LLM returns `is_error`, `confidence` (HIGH/MEDIUM/LOW), and `suggested_correction` together |
 | **Total (cache MISS, ≤ 50 suspects)** | **3** | — | — |
 | **Total (cache HIT, ≤ 50 suspects)** | **1** | — | — |
+
+> **Note on confidence judgment**: Confidence (HIGH/MEDIUM/LOW) is **not** a separate LLM call. Explicit confidence criteria are baked into the PRIMARY system prompt, so the LLM determines error verdict and confidence in the same single call. No extra round-trip for confidence.
 
 > **Core design principle — "LLM discovers, rules verify"**: LLM decides *what* patterns to validate; the actual record-level checking is performed by deterministic tool functions (`range_check`, `regex_validate`, `timestamp_compare`). This combines LLM's creative pattern discovery with the reproducibility of deterministic validation.
 
