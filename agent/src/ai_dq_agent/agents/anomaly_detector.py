@@ -529,6 +529,17 @@ def invoke_anomaly_detector(state: dict) -> dict:
     statistical_count = len([a for a in new_anomalies if a["error_type"] == "statistical_anomaly"])
     contextual_count = len([a for a in new_anomalies if a["error_type"] == "contextual_anomaly"])
 
+    # Propagate anomaly error types into validation_stats so the UI error-type
+    # distribution reflects both rule-based and anomaly-based findings.
+    if new_anomalies:
+        validation_stats = dict(result.get("validation_stats", {}))
+        stats_by_error_type = dict(validation_stats.get("stats_by_error_type", {}))
+        for a in new_anomalies:
+            et = a.get("error_type", "unknown")
+            stats_by_error_type[et] = stats_by_error_type.get(et, 0) + 1
+        validation_stats["stats_by_error_type"] = stats_by_error_type
+        result["validation_stats"] = validation_stats
+
     result["suspects_s3_path"] = suspects_s3_path
     result["suspect_count"] = len(merged_suspects)
     result["anomaly_stats"] = {

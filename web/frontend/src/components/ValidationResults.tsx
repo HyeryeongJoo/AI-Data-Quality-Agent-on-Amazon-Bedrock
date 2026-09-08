@@ -25,6 +25,8 @@ const ERROR_TYPE_KR: Record<string, string> = {
   format_inconsistency: '포맷 불일치',
   temporal_violation: '시간순서 위반',
   cross_column_inconsistency: '크로스컬럼 불일치',
+  statistical_anomaly: '통계적 이상치',
+  contextual_anomaly: '문맥적 이상치',
 };
 
 const SEVERITY_KR: Record<string, string> = {
@@ -570,6 +572,8 @@ function ErrorTypeDistribution({ result }: Props) {
     format_inconsistency: '#ff9900',
     temporal_violation: '#0073bb',
     cross_column_inconsistency: '#687078',
+    statistical_anomaly: '#9469d6',
+    contextual_anomaly: '#6b40c4',
   };
 
   return (
