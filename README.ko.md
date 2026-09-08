@@ -8,13 +8,27 @@
 
 **v1 — 기본 검증 (규칙 + LLM)** — 5노드 파이프라인:
 ```
-Coordinator → Rule Validator → LLM Analyzer → Report & Notify → Correction
+Coordinator ─(데이터 있음?)─► Rule Validator ─(의심 항목 > 0?)─► LLM Analyzer → Report & Notify → Correction
+                                                    │
+                                             (의심 항목 없음)
+                                                    └──────────────────────────► Report & Notify
 ```
 
 **v2 — 확장 검증 (규칙 + 이상치 + LLM)** — 6노드 파이프라인:
 ```
-Coordinator → Rule Validator → Anomaly Detector → LLM Analyzer → Report & Notify → Correction
+Coordinator ─(데이터 있음?)─► Rule Validator → Anomaly Detector ─(의심 항목 > 0?)─► LLM Analyzer → Report & Notify → Correction
+                                                                         │
+                                                                  (의심 항목 없음)
+                                                                         └───────────────────────► Report & Notify
 ```
+
+파이프라인은 **조건부 라우팅**을 사용합니다 — 불필요한 단계는 자동으로 건너뜁니다:
+
+| 조건 | 동작 |
+|------|------|
+| Coordinator가 데이터를 찾지 못한 경우 | 파이프라인 즉시 종료, 이후 모든 단계 건너뜀 |
+| Rule Validator(v1) 또는 Anomaly Detector(v2) 이후 의심 항목 = 0건 | LLM Analyzer 건너뜀 — 분석할 레코드 없음 |
+| `dry_run = true` | Correction 건너뜀 — 리포트만 생성, 데이터 수정 없음 |
 
 ### 파이프라인 노드
 

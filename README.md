@@ -8,13 +8,27 @@ Two pipeline versions are available:
 
 **v1 — Basic Validation (Rules + LLM)** — 5-node pipeline:
 ```
-Coordinator → Rule Validator → LLM Analyzer → Report & Notify → Correction
+Coordinator ─(has data?)─► Rule Validator ─(suspects > 0?)─► LLM Analyzer → Report & Notify → Correction
+                                                 │
+                                          (no suspects)
+                                                 └──────────────────────────► Report & Notify
 ```
 
 **v2 — Extended Validation (Rules + Anomaly Detection + LLM)** — 6-node pipeline:
 ```
-Coordinator → Rule Validator → Anomaly Detector → LLM Analyzer → Report & Notify → Correction
+Coordinator ─(has data?)─► Rule Validator → Anomaly Detector ─(suspects > 0?)─► LLM Analyzer → Report & Notify → Correction
+                                                                      │
+                                                               (no suspects)
+                                                                      └───────────────────────► Report & Notify
 ```
+
+The pipeline uses **conditional routing** — nodes are skipped when not needed:
+
+| Condition | Behaviour |
+|-----------|-----------|
+| No data found by Coordinator | Pipeline exits immediately; all downstream nodes skipped |
+| Suspect count = 0 after Rule Validator (v1) or Anomaly Detector (v2) | LLM Analyzer skipped — no records to analyze |
+| `dry_run = true` | Correction skipped — report only, no data modifications |
 
 ### Pipeline Nodes
 
