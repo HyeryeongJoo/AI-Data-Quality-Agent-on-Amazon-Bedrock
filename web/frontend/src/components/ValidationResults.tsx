@@ -244,6 +244,11 @@ function SummaryCards({ result }: Props) {
       ? 'text-status-warning'
       : 'text-status-error';
 
+  // 의심 항목으로 한 번도 분류되지 않은 정상 통과 레코드 수
+  const uniqueSuspectCount = new Set((result.suspects ?? []).map(s => String(s.record_id))).size;
+  const totalRecords = result.total_records ?? 0;
+  const normalPassCount = totalRecords - uniqueSuspectCount;
+
   return (
     <Container header={<Header variant="h2">검증 결과 요약</Header>}>
       <ColumnLayout columns={4} variant="text-grid">
@@ -264,7 +269,15 @@ function SummaryCards({ result }: Props) {
         </div>
         <div>
           <Box variant="awsui-key-label">전체 스캔 레코드</Box>
-          <Box variant="h1">{result.total_records?.toLocaleString() ?? 0}</Box>
+          <Box variant="h1">{totalRecords.toLocaleString()}</Box>
+          <SpaceBetween size="xxs">
+            <Box variant="small" color="text-status-success">
+              정상 통과 (의심 없음): {normalPassCount.toLocaleString()}건
+            </Box>
+            <Box variant="small" color="text-status-warning">
+              의심 항목: {uniqueSuspectCount.toLocaleString()}건
+            </Box>
+          </SpaceBetween>
         </div>
         <div>
           <Box variant="awsui-key-label">LLM 오류 판정 레코드</Box>
@@ -284,9 +297,6 @@ function SummaryCards({ result }: Props) {
         const lowErrorCount = analysisStats?.low_error_count ?? 0;
         const errorCount = analysisStats?.error_count ?? 0;
         const falsePositives = (analysisStats?.total_analyzed ?? 0) - errorCount;
-
-        // Unique record count for rule-based suspects
-        const uniqueSuspectCount = new Set((result.suspects ?? []).map(s => String(s.record_id))).size;
 
         const totalAnalyzed = analysisStats?.total_analyzed ?? 0;
         const popoverContent = (
