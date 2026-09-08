@@ -347,7 +347,7 @@ Key variables:
 | `S3_STAGING_BUCKET` | S3 bucket for data staging and pipeline artifacts |
 | `AGENT_RUNTIME_ARN` | AgentCore runtime ARN (empty = direct invocation) |
 | `SLACK_BOT_TOKEN` | Slack bot token for notifications (optional) |
-| `BEDROCK_MODEL_ID` | Bedrock model ID (default: `global.anthropic.claude-sonnet-4-6`) |
+| `BEDROCK_MODEL_ID` | Bedrock model ID (default: `global.anthropic.claude-sonnet-5`) |
 
 ## Execution Modes
 

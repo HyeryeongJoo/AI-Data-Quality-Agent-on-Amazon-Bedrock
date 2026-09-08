@@ -715,7 +715,7 @@ function TechStackDetail() {
           variant="embedded"
           items={[
             { category: '에이전트 런타임', service: 'Amazon Bedrock AgentCore Runtime', purpose: '파이프라인의 서버리스 실행 환경. 인프라 관리 없이 에이전트를 배포하고 호출합니다.' },
-            { category: 'LLM 모델', service: 'Claude Sonnet 4.6 (Bedrock Converse API)', purpose: '모델 ID: global.anthropic.claude-sonnet-4-6. 동적 규칙 생성, PRIMARY 시맨틱 분석에 사용. max_tokens=16,384, batch_size=50.' },
+            { category: 'LLM 모델', service: 'Claude Sonnet 5 (Bedrock Converse API)', purpose: '모델 ID: global.anthropic.claude-sonnet-5. 동적 규칙 생성, PRIMARY 시맨틱 분석에 사용. max_tokens=16,384, batch_size=50.' },
             { category: '데이터 소스', service: 'Amazon DynamoDB', purpose: '택배 물류 원본 데이터 저장. Export to S3 또는 Rate-limited Scan으로 데이터 추출.' },
             { category: '중간 저장소', service: 'Amazon S3', purpose: '스테이징 데이터, 의심 항목(JSONL), 판정 결과, 리포트(Markdown), 스냅샷 저장.' },
             { category: '동적 규칙 캐시', service: 'Amazon S3', purpose: '스키마 fingerprint(SHA-256) 기반으로 LLM 생성 동적 규칙을 캐시. TTL 1시간. 동일 스키마 반복 검증 시 LLM 호출 2회(~40초)를 절감.' },

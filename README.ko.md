@@ -347,7 +347,7 @@ bedrock-dq-agent/
 | `S3_STAGING_BUCKET` | 데이터 스테이징 및 파이프라인 아티팩트용 S3 버킷 |
 | `AGENT_RUNTIME_ARN` | AgentCore 런타임 ARN (비어있으면 직접 호출) |
 | `SLACK_BOT_TOKEN` | Slack 알림용 봇 토큰 (선택사항) |
-| `BEDROCK_MODEL_ID` | Bedrock 모델 ID (기본값: `global.anthropic.claude-sonnet-4-6`) |
+| `BEDROCK_MODEL_ID` | Bedrock 모델 ID (기본값: `global.anthropic.claude-sonnet-5`) |
 
 ## 실행 모드
 

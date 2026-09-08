@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     s3_rules_key: str = "rules/delivery_rules.yaml"
 
     # Amazon Bedrock
-    bedrock_model_id: str = "global.anthropic.claude-sonnet-4-6"
-    agent_model_id: str = "global.anthropic.claude-sonnet-4-6"
+    bedrock_model_id: str = "global.anthropic.claude-sonnet-5"
+    agent_model_id: str = "global.anthropic.claude-sonnet-5"
 
     # Slack
     slack_bot_token: str = ""
