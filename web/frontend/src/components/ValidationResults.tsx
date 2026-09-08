@@ -298,12 +298,12 @@ function SummaryCards({ result }: Props) {
           <Box variant="awsui-key-label">전체 스캔 레코드</Box>
           <Box variant="h1">{totalRecords.toLocaleString()}</Box>
           <SpaceBetween size="xxs">
-            <Box variant="small" color="text-status-success">
+            <StatusIndicator type="success">
               정상 통과 (의심 없음): {normalPassCount.toLocaleString()}건
-            </Box>
-            <Box variant="small" color="text-status-warning">
+            </StatusIndicator>
+            <StatusIndicator type="warning">
               의심 항목: {uniqueSuspectCount.toLocaleString()}건
-            </Box>
+            </StatusIndicator>
           </SpaceBetween>
         </div>
         <div>
