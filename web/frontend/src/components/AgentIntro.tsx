@@ -929,18 +929,18 @@ export default function AgentIntro() {
             </SpaceBetween>
           </ExpandableSection>
 
-          {/* 1.2 개념 프레임워크: 4단계 검증이 필요한 이유 */}
-          <FourLayerValidation />
-          {/* 1.3 Rule Validator 심화: 정적·동적 규칙 동작 방식 */}
-          <StaticVsDynamicRules />
-          {/* 1.4 파이프라인 흐름: 의심 항목 수집 → LLM 필터링 */}
-          <SuspectFilteringArchitecture />
-          {/* 1.5 LLM Analyzer 심화: PRIMARY 분석·신뢰도 판정 */}
-          <LlmVerificationDetail />
-          {/* 1.6 오류 확정 후 처리: HITL 보정 프로세스 */}
-          <HitlCorrectionDetail />
-          {/* 1.7 설계 원칙 정리: 앞 내용을 이해한 후 메타 관점 */}
+          {/* 1.2 설계 근거: 왜 이 구조인가 */}
           <ArchitectureRationale />
+          {/* 1.3 개념 프레임워크: 4단계 검증이 필요한 이유 */}
+          <FourLayerValidation />
+          {/* 1.4 Rule Validator 심화: 정적·동적 규칙 동작 방식 */}
+          <StaticVsDynamicRules />
+          {/* 1.5 파이프라인 흐름: 의심 항목 수집 → LLM 필터링 */}
+          <SuspectFilteringArchitecture />
+          {/* 1.6 LLM Analyzer 심화: PRIMARY 분석·신뢰도 판정 */}
+          <LlmVerificationDetail />
+          {/* 1.7 오류 확정 후 처리: HITL 보정 프로세스 */}
+          <HitlCorrectionDetail />
           {/* 1.8 기술 스택 */}
           <TechStackDetail />
         </SpaceBetween>
