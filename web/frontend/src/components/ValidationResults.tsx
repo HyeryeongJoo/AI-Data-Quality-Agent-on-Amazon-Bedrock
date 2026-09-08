@@ -255,6 +255,23 @@ function SummaryCards({ result }: Props) {
   const totalRecords = result.total_records ?? 0;
   const normalPassCount = totalRecords - uniqueSuspectCount;
 
+  // 데이터 오류율: LLM 확정 오류 / 전체 스캔 레코드
+  const violationCount = result.violation_count ?? 0;
+  const dataErrorRate = totalRecords > 0 ? (violationCount / totalRecords * 100).toFixed(1) : '0.0';
+
+  // 자동 보정 가능 비율: 오류 확정 건수 중 LLM이 수정값을 제안한 비율
+  const allJudgments = result.judgments ?? [];
+  const errorByRecord = new Map<string, Judgment>();
+  for (const j of allJudgments) {
+    if (!j.is_error) continue;
+    const rid = cleanRecordId(String(j.record_id));
+    if (!errorByRecord.has(rid)) errorByRecord.set(rid, j);
+  }
+  const correctableCount = [...errorByRecord.values()].filter(
+    j => j.suggested_correction && Object.keys(j.suggested_correction).length > 0
+  ).length;
+  const correctionRate = errorByRecord.size > 0 ? Math.round(correctableCount / errorByRecord.size * 100) : 0;
+
   return (
     <Container header={<Header variant="h2">검증 결과 요약</Header>}>
       <ColumnLayout columns={4} variant="text-grid">
@@ -288,9 +305,16 @@ function SummaryCards({ result }: Props) {
         <div>
           <Box variant="awsui-key-label">LLM 오류 판정 레코드</Box>
           <Box variant="h1" color="text-status-error">
-            {result.violation_count?.toLocaleString() ?? 0}
+            {violationCount.toLocaleString()}
           </Box>
-          <Box variant="small" color="text-body-secondary">모든 신뢰도 포함, 고유 레코드 기준</Box>
+          <SpaceBetween size="xxs">
+            <Box variant="small" color="text-status-error">
+              데이터 오류율: {dataErrorRate}%
+            </Box>
+            <Box variant="small" color="text-body-secondary">
+              자동 보정 가능: {correctableCount}건 ({correctionRate}%)
+            </Box>
+          </SpaceBetween>
         </div>
       </ColumnLayout>
 
@@ -417,10 +441,10 @@ function SummaryCards({ result }: Props) {
                   </Box>
                 </div>
                 <div>
-                  <Box variant="awsui-key-label">오탐율</Box>
-                  <Box variant="p">{totalAnalyzed > 0 ? ((falsePositives / totalAnalyzed) * 100).toFixed(0) : 0}%</Box>
+                  <Box variant="awsui-key-label">자동 보정 가능</Box>
+                  <Box variant="p" color="text-status-success">{correctableCount}건</Box>
                   <Box variant="small" color="text-body-secondary">
-                    {falsePositives} / {totalAnalyzed}건
+                    오류 확정 {errorCount}건 중 {correctionRate}%
                   </Box>
                 </div>
               </ColumnLayout>
@@ -443,10 +467,10 @@ function SummaryCards({ result }: Props) {
                 <Box variant="p">{falsePositives}건</Box>
               </div>
               <div>
-                <Box variant="awsui-key-label">LLM 오류 판정 (전체)</Box>
-                <Box variant="p" color="text-status-error">{errorCount}건</Box>
+                <Box variant="awsui-key-label">자동 보정 가능</Box>
+                <Box variant="p" color="text-status-success">{correctableCount}건</Box>
                 <Box variant="small" color="text-body-secondary">
-                  HIGH {highErrorCount} · MEDIUM {mediumErrorCount} · LOW {lowErrorCount}
+                  오류 확정 {errorCount}건 중 {correctionRate}%
                 </Box>
               </div>
             </ColumnLayout>
